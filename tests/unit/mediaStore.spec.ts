@@ -7,7 +7,7 @@ import { useMediaOptionsStore } from '../../src/stores/media/options';
 import { useMediaStateStore, MediaState } from '../../src/stores/media/state';
 import { useSettingsStore } from '../../src/stores/settings';
 import { defaultSettings } from '../../src/tauri/types/config';
-import type { EntryItem, MediaAddPayload } from '../../src/tauri/types/media';
+import { TrackType, type EntryItem, type MediaAddPayload } from '../../src/tauri/types/media';
 import type { Group } from '../../src/tauri/types/group';
 
 const { notify, notifyGroup } = vi.hoisted(() => ({
@@ -76,6 +76,58 @@ describe('media store', () => {
 
   afterEach(() => {
     clearMocks();
+  });
+
+  it('submits subtitle-only tasks without AV formats and preserves explicit languages', async () => {
+    let payload: Record<string, unknown> | undefined;
+    installTauriMock({
+      media_download: (_cmd, args) => {
+        payload = args as Record<string, unknown>;
+        return 'ok';
+      },
+    });
+    const group = createPlaylistGroup('subtitles-only', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    useMediaOptionsStore().setOverrides(group.id, { subtitles: { languages: ['ja'], embedSubtitles: true } });
+    await useMediaStore().downloadSubtitles(group.id);
+    expect(payload).toMatchObject({ items: [{
+      subtitlesOnly: true,
+      format: { subtitlesOnly: true },
+      overrides: { subtitles: { enabled: true, languages: ['ja'], embedSubtitles: false } },
+    }] });
+    expect(useMediaOptionsStore().getOptions(group.id)).toBeUndefined();
+    expect(useMediaOptionsStore().getOverrides(group.id)?.subtitles?.embedSubtitles).toBe(true);
+  });
+
+  it('keeps a subsequent ordinary download in AV mode after a subtitle-only action', async () => {
+    const payloads: unknown[] = [];
+    installTauriMock({
+      media_download: (_cmd, args) => {
+        payloads.push(args);
+        return 'ok';
+      },
+    });
+    const group = createPlaylistGroup('subtitle-then-video', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    const optionsStore = useMediaOptionsStore();
+    optionsStore.setOptions(group.id, { trackType: TrackType.both, height: 720 });
+    optionsStore.setOverrides(group.id, { subtitles: { embedSubtitles: true } });
+    const mediaStore = useMediaStore();
+
+    await mediaStore.downloadSubtitles(group.id);
+    await mediaStore.downloadGroup(group.id, optionsStore.getOptions(group.id)!);
+
+    expect(payloads[0]).toMatchObject({ items: [{ subtitlesOnly: true }] });
+    expect(payloads[1]).toMatchObject({ items: [{
+      subtitlesOnly: false,
+      format: { trackType: TrackType.both, height: 720 },
+      overrides: { subtitles: { embedSubtitles: true } },
+    }] });
+    expect(optionsStore.getOptions(group.id)).toEqual({ trackType: TrackType.both, height: 720 });
   });
 
   it('applies input filter overrides when dispatching media info fetches', async () => {

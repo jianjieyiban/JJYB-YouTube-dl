@@ -12,6 +12,7 @@ const expandedCodes: Record<string, SubtitleLanguageOption> = {
   'pt-PT': { code: 'pt-PT', englishName: 'Portuguese (Portugal)', nativeName: 'Português (Portugal)' },
   'pt-BR': { code: 'pt-BR', englishName: 'Portuguese (Brazil)', nativeName: 'Português (Brasil)' },
   'zh-TW': { code: 'zh-TW', englishName: 'Traditional Chinese (Taiwan)', nativeName: '繁體中文（台灣）' },
+  'zh-CN': { code: 'zh-CN', englishName: 'Simplified Chinese', nativeName: '简体中文' },
 };
 
 export const languageOptions: SubtitleLanguageOption[] = [...codes, ...Object.keys(expandedCodes)]
@@ -38,7 +39,7 @@ function normalizeLocale(candidate: string): string {
   return region ? `${language}-${region}` : language;
 }
 
-export function getSubtitleLanguageLabel(code: string): string {
+export function getSubtitleLanguageLabel(code: string, locale = 'en'): string {
   const trimmed = code.trim();
   if (!trimmed) {
     return code;
@@ -53,37 +54,18 @@ export function getSubtitleLanguageLabel(code: string): string {
   const exact = languageOptionsLookup.get(base)
     || languageOptionsLookup.get(base.toLowerCase());
 
-  const label = exact?.englishName ?? base.toUpperCase();
+  const isSimplifiedChinese = locale === 'zh-CN';
+  const label = isSimplifiedChinese
+    ? new Intl.DisplayNames(['zh-CN'], { type: 'language' }).of(base) ?? base.toUpperCase()
+    : exact?.englishName ?? base.toUpperCase();
 
-  return isOrig ? `${label} (Original audio)` : label;
+  return isOrig
+    ? isSimplifiedChinese ? `${label}（原始音频）` : `${label} (Original audio)`
+    : label;
 }
 
 export function getPreferredAutoSubtitleLanguages(codes: string[]): string[] {
-  const groups = new Map<string, { plain?: string; orig?: string }>();
-
-  for (const code of codes) {
-    const trimmed = code.trim();
-    if (!trimmed) continue;
-
-    const normalized = trimmed.replace(/_/g, '-');
-    const lower = normalized.toLowerCase();
-    const isOrig = lower.endsWith('-orig');
-    const base = (isOrig ? normalized.slice(0, -5) : normalized).toLowerCase();
-    const existing = groups.get(base) ?? {};
-
-    if (isOrig) existing.orig = lower;
-    else existing.plain = lower;
-
-    groups.set(base, existing);
-  }
-
-  const hasOrigVariant = [...groups.values()].some(value => value.orig);
-
-  return [...groups.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .filter(([, value]) => !hasOrigVariant || value.orig)
-    .map(([, value]) => value.plain ?? value.orig!)
-    .filter(Boolean);
+  return [...new Set(codes.map(code => code.trim()).filter(Boolean))].sort();
 }
 
 export function detectBrowserLanguageCodes(): string[] {

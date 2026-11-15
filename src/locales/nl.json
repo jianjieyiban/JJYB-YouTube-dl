@@ -804,7 +804,7 @@
       },
       "autoStart": {
         "label": "Starten bij aanmelden",
-        "hint": "Start Open Video Downloader automatisch wanneer u zich aanmeldt."
+        "hint": "Start JJYB-YouTube-dl automatisch wanneer u zich aanmeldt."
       },
       "autoStartMinimised": {
         "label": {
@@ -1063,7 +1063,7 @@
   },
   "about": {
     "title": "Over deze app",
-    "credit": "Gemaakt met ❤ door jely2002 & bijdragers",
+    "credit": "Aangepast door jianjieyiban, gebaseerd op jely2002/youtube-dl-gui en bijdragers; AGPL-3.0-or-later",
     "poweredBy": "Mogelijk gemaakt door open source:",
     "viewLicenses": "Licenties bekijken",
     "version": "Versie: {version}",

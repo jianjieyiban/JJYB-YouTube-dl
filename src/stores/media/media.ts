@@ -314,6 +314,11 @@ export const useMediaStore = defineStore('media', () => {
     return readyGroupIds;
   }
 
+  async function downloadSubtitles(groupId: string) {
+    const options = { ...getDownloadOptions(groupId), subtitlesOnly: true };
+    await downloadGroup(groupId, options);
+  }
+
   async function downloadGroup(
     groupId: string,
     options: DownloadOptions,
@@ -326,7 +331,10 @@ export const useMediaStore = defineStore('media', () => {
     const itemsWithoutLeader: MediaItem[] = items.filter(item => !item.entries && stateStore.getState(item.id) !== MediaState.done);
     const encodings = optionsStore.getEncodings(groupId);
     const tracks = optionsStore.getTracks(groupId);
-    const overrides = optionsStore.getOverrides(groupId);
+    const existingOverrides = optionsStore.getOverrides(groupId);
+    const overrides = options.subtitlesOnly
+      ? { ...existingOverrides, subtitles: { ...existingOverrides?.subtitles, enabled: true, embedSubtitles: false } }
+      : existingOverrides;
     const resolvedOptions: DownloadOptions = {
       ...options,
       audioEncoding: encodings?.audio,
@@ -349,6 +357,7 @@ export const useMediaStore = defineStore('media', () => {
           id: item.id,
           url: item.url,
           format: resolvedOptions,
+          subtitlesOnly: options.subtitlesOnly ?? false,
           subtitleInventory: item.subtitleInventory,
           overrides,
           templateContext: {
@@ -481,6 +490,7 @@ export const useMediaStore = defineStore('media', () => {
     addUrlBatch,
     addUrlBatchAndDownload,
     downloadGroup,
+    downloadSubtitles,
     downloadAllGroups,
     pauseAllGroups,
     pauseGroup,

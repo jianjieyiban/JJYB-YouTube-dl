@@ -76,7 +76,16 @@ const test = testBase.extend<Options & Fixtures>({
   }],
   page: async ({ mockData, page }, use) => {
     await page.addInitScript((mockData: MockData) => {
-      window.E2E = mockData;
+      window.E2E = {
+        ...mockData,
+        settings: {
+          ...mockData.settings,
+          appearance: {
+            language: 'en',
+            ...mockData.settings?.appearance,
+          },
+        },
+      };
     }, mockData);
     await use(page);
   },

@@ -1,20 +1,20 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Open Video Downloader",
-  "mainBinaryName": "open-video-downloader",
+  "productName": "JJYB-YouTube-dl",
+  "mainBinaryName": "jjyb-youtube-dl",
   "version": "3.2.1",
-  "identifier": "com.jelleglebbeek.youtube-dl-gui",
+  "identifier": "com.jianjieyiban.jjybyoutubedl",
   "build": {
     "beforeDevCommand": "npm run build:isolation && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build && npm run licenses",
+    "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
         "create": false,
-        "title": "Open Video Downloader",
+        "title": "JJYB-YouTube-dl",
         "width": 800,
         "minWidth": 750,
         "height": 900,
@@ -71,6 +71,7 @@
           "Norwegian",
           "Russian",
           "PortugueseBR",
+          "SimpChinese",
           "TradChinese",
           "Turkish"
         ]
@@ -79,9 +80,9 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNBRTI0NDIwNzRDQUIzRUMKUldUc3M4cDBJRVRpT21CaVE1VmRZQ3pLSGZKb2F3OGRkM2ZCYXEyYStUQ0UyNnJ0aDBKMXh3eU4K",
+      "pubkey": "",
       "endpoints": [
-        "https://github.com/jely2002/youtube-dl-gui/releases/latest/download/latest.json"
+        "https://github.com/jianjieyiban/JJYB-YouTube-dl/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

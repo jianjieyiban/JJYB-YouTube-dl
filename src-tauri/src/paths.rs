@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
-const PORTABLE_DIR: &str = "ovd-portable";
+const PORTABLE_DIR: &str = "jjyb-portable";
 const BIN_DIR: &str = "bin";
 const SNAP_USER_DATA_ENV: &str = "SNAP_USER_DATA";
 const SNAP_USER_COMMON_ENV: &str = "SNAP_USER_COMMON";
@@ -195,6 +195,23 @@ mod tests {
     assert_eq!(app_dir, snap_user_data.join("com.test.app"));
     assert!(!is_portable);
     assert!(is_snap);
+  }
+
+  #[test]
+  fn portable_brand_is_isolated_from_upstream() {
+    assert_eq!(PORTABLE_DIR, "jjyb-portable");
+    let base = temp_dir("upstream-portable");
+    let exe_dir = base.join("exe");
+    fs::create_dir_all(exe_dir.join("ovd-portable")).unwrap();
+    let app_data_dir = base.join("app-data");
+    let (resolved, portable, _) = PathsManager::resolve_app_dir_with(
+      "com.jianjieyiban.jjybyoutubedl",
+      app_data_dir.clone(),
+      Some(exe_dir),
+      None,
+    );
+    assert_eq!(resolved, app_data_dir);
+    assert!(!portable);
   }
 
   #[test]

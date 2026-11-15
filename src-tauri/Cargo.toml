@@ -1,9 +1,10 @@
 [package]
-name = "open-video-downloader"
+name = "jjyb-youtube-dl"
+repository = "https://github.com/jianjieyiban/JJYB-YouTube-dl"
 version = "3.2.1"
 description = "Download videos from all over the web."
 license = "AGPL-3.0-or-later"
-authors = ["Jelle Glebbeek"]
+authors = ["Jelle Glebbeek", "jianjieyiban (modified version)"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -59,6 +60,8 @@ include_dir = "0.7.4"
 sys-locale = "0.3.2"
 notify-rust = "4.12"
 shlex = "2.0.1"
+ferrous-opencc = { version = "0.4.0", default-features = false, features = ["t2s-conversion"] }
+tempfile = "3"
 
 [dev-dependencies]
 tauri = { version = "2.11.1", features = ["test"] }
@@ -68,6 +71,9 @@ libc = "0.2.176"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
+[patch.crates-io]
+stronghold-runtime = { path = "vendor/stronghold-runtime" }
 
 [profile.dev]
 incremental = true

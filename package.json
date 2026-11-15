@@ -1,11 +1,11 @@
 {
-  "name": "open-video-downloader",
+  "name": "jjyb-youtube-dl",
   "version": "3.2.1",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jely2002/youtube-dl-gui.git"
+    "url": "git+https://github.com/jianjieyiban/JJYB-YouTube-dl.git"
   },
   "scripts": {
     "dev": "cross-env DEV=true vite",
@@ -48,8 +48,8 @@
     "pinia": "^3.0.4",
     "tailwindcss": "^4.3.1",
     "uuid": "^14.0.0",
-    "vue": "^3.5.39",
-    "vue-i18n": "^11.4.6",
+    "vue": "^3.5.42",
+    "vue-i18n": "^11.4.14",
     "vue-router": "^5.1.0"
   },
   "devDependencies": {
@@ -75,7 +75,7 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.59.4",
     "unzipper": "^0.12.3",
-    "vite": "^8.0.16",
+    "vite": "^8.1.6",
     "vitest": "4.1.7",
     "vue-eslint-parser": "^10.4.0",
     "vue-tsc": "^3.3.1"

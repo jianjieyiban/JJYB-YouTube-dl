@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { ToolSource } from './sources.ts';
 import { fetchSources, TOOL_LICENSES } from './sources.ts';
 
@@ -30,40 +31,41 @@ async function main() {
   }
 
   const rust = readFileOrEmpty(RUST_FILE);
+  if (!rust) throw new Error('[licenses] Rust license input is required; run licenses:rust first.');
   const npm = generateNpmLicenses();
   const externalTools = await generateExternalToolsSection();
 
   const content = [
-    'Open Video Downloader – Third-Party Licenses',
+    'JJYB-YouTube-dl – Third-Party Licenses',
     '===========================================',
     '',
     externalTools,
+    '',
+    'OPENCC DICTIONARIES\n-------------------\n',
+    'The conversion dictionaries bundled by ferrous-opencc 0.4.0 originate from Open Chinese Convert (OpenCC).',
+    'Source: https://github.com/BYVoid/OpenCC',
+    'License: Apache-2.0. The complete Apache License 2.0 text is reproduced in the Rust dependencies section below.',
     '',
     rust ? 'RUST DEPENDENCIES\n-----------------\n\n' + rust + '\n' : '',
     npm ? '\nNPM DEPENDENCIES\n----------------\n\n' + npm + '\n' : '',
     '',
   ].join('\n');
 
-  writeFileSync(OUTPUT_FILE, content, 'utf8');
+  writeFileSync(OUTPUT_FILE, content.replace(/[\t ]+$/gm, '').trimEnd() + '\n', 'utf8');
   console.log(`[licenses] wrote ${OUTPUT_FILE}`);
 }
 
-function generateNpmLicenses() {
-  const raw = readFileSync(NPM_FILE, 'utf8');
+export function generateNpmLicenses(read = (path: string) => readFileSync(path, 'utf8')) {
+  const raw = read(NPM_FILE);
   const data: Record<string, LicenseInfo> = JSON.parse(raw);
 
   const packageLines: string[] = [];
   const licenseTextMap = new Map<string, string>();
 
   for (const [key, info] of Object.entries(data)) {
-    const name = info.name || key.split('@')[0] || key;
-    const version
-      = info.version
-        || key
-          .split('@')
-          .slice(1)
-          .join('@')
-          || 'unknown';
+    const separator = key.lastIndexOf('@');
+    const name = info.name || (separator > 0 ? key.slice(0, separator) : key);
+    const version = info.version || (separator > 0 ? key.slice(separator + 1) : 'unknown');
 
     const licenses = Array.isArray(info.licenses)
       ? info.licenses
@@ -74,10 +76,10 @@ function generateNpmLicenses() {
     for (const lic of licenses) {
       packageLines.push(`${name} ${version} - ${lic}`);
 
-      if (info.licenseFile && !licenseTextMap.has(lic)) {
+      if (info.licenseFile) {
         try {
-          const text = readFileSync(info.licenseFile, 'utf8');
-          licenseTextMap.set(lic, text.trim());
+          const text = read(info.licenseFile).trim();
+          licenseTextMap.set(`${name} ${version} - ${lic}`, text);
         } catch (e) {
           console.warn(`[licenses] could not read license file ${info.licenseFile}: ${e}.`);
         }
@@ -89,7 +91,7 @@ function generateNpmLicenses() {
 
   const licenseTextBlocks: string[] = [];
   licenseTextMap.forEach((text, id) => {
-    licenseTextBlocks.push(`${id} - ${id}`);
+    licenseTextBlocks.push(id);
     licenseTextBlocks.push(text);
     licenseTextBlocks.push('');
     licenseTextBlocks.push('----------------------------------------');
@@ -115,8 +117,7 @@ async function generateExternalToolsSection() {
   try {
     sources = await fetchSources();
   } catch (err) {
-    console.warn('[licenses] Failed to fetch external tools metadata:', err);
-    return '(Failed to generate external tools list)\n';
+    throw new Error('[licenses] Failed to fetch external tools metadata', { cause: err });
   }
 
   const lines: string[] = [];
@@ -129,7 +130,9 @@ async function generateExternalToolsSection() {
   lines.push('');
 
   for (const tool of sources) {
-    const meta = TOOL_LICENSES[tool.name] ?? {};
+    const meta = TOOL_LICENSES[tool.name] ?? (tool.name === 'deno'
+      ? { license: 'MIT', url: 'https://github.com/denoland/deno' }
+      : {});
     const license = meta.license ?? '(license unknown)';
     const site = meta.url ?? '(no project URL)';
 
@@ -142,4 +145,6 @@ async function generateExternalToolsSection() {
   return lines.join('\n');
 }
 
-void main();
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  void main();
+}

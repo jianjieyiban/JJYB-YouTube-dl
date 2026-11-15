@@ -3,10 +3,11 @@ import router from './router.ts';
 import { App } from 'vue';
 
 export function createSentry(app: App<Element>) {
-  if (__E2E__ || __DEV__) return;
+  const dsn = import.meta.env.VITE_JJYB_SENTRY_DSN?.trim();
+  if (__E2E__ || __DEV__ || !dsn) return;
   Sentry.init({
     app,
-    dsn: 'https://e5ff83f3c84f397db516955ec278c4c6@o762792.ingest.us.sentry.io/4510256640884736',
+    dsn,
     integrations: integrations => [
       ...integrations,
       Sentry.browserTracingIntegration({

@@ -804,7 +804,7 @@
       },
       "autoStart": {
         "label": "Start ved pålogging",
-        "hint": "Start Open Video Downloader automatisk når du logger på."
+        "hint": "Start JJYB-YouTube-dl automatisk når du logger på."
       },
       "autoStartMinimised": {
         "label": {
@@ -1063,7 +1063,7 @@
   },
   "about": {
     "title": "Om",
-    "credit": "Laget med ❤ av jely2002 & bidragsytere",
+    "credit": "Endret av jianjieyiban, basert på jely2002/youtube-dl-gui og bidragsytere; AGPL-3.0-or-later",
     "poweredBy": "Drevet av åpen kildekode:",
     "viewLicenses": "Vis lisenser",
     "version": "Versjon: {version}",

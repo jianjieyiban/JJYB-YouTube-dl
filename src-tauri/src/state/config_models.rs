@@ -18,7 +18,7 @@ impl Default for AppearanceSettings {
   fn default() -> Self {
     Self {
       theme: "system".into(),
-      language: "system".into(),
+      language: "zh-CN".into(),
       expanded_options: "none".into(),
     }
   }
@@ -239,6 +239,7 @@ pub struct SponsorBlockSettings {
 #[serde(default, rename_all = "camelCase")]
 pub struct SubtitleSettings {
   pub enabled: bool,
+  pub chinese_priority: bool,
   pub include_auto_generated: bool,
   pub languages: Vec<String>,
   pub format_preference: Vec<String>,
@@ -248,17 +249,12 @@ pub struct SubtitleSettings {
 impl Default for SubtitleSettings {
   fn default() -> Self {
     Self {
-      enabled: false,
+      enabled: true,
+      chinese_priority: true,
       include_auto_generated: false,
-      languages: vec!["en".into()],
-      embed_subtitles: true,
-      format_preference: vec![
-        "srt".into(),
-        "vtt".into(),
-        "ass".into(),
-        "ttml".into(),
-        "json3".into(),
-      ],
+      languages: vec!["zh-Hans".into()],
+      embed_subtitles: false,
+      format_preference: vec!["srt".into()],
     }
   }
 }
@@ -274,7 +270,7 @@ impl Default for UpdateSettings {
   fn default() -> Self {
     Self {
       update_binaries: true,
-      update_app: true,
+      update_app: false,
     }
   }
 }

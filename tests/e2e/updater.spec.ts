@@ -4,7 +4,12 @@ import { test } from './utils/fixtures';
 test.describe('when it has an update available', () => {
   test.use({
     mockData: [{
+      settings: {
+        appearance: { language: 'en' },
+        update: { updateApp: true },
+      },
       updater: {
+        configured: true,
         available: true,
         availableVersion: '1.2.3',
         currentVersion: '1.2.2',
@@ -63,7 +68,34 @@ test.describe('when it has an update available', () => {
   });
 });
 
+test.describe('when application updates are not configured', () => {
+  test.use({
+    mockData: [{
+      settings: {
+        appearance: { language: 'en' },
+        update: { updateApp: true },
+      },
+      updater: { configured: false, available: true },
+    }, { scope: 'test' }],
+  });
+
+  test('it shows no update alert even when availability is stale', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('updater-alert')).not.toBeVisible();
+  });
+});
+
 test.describe('when it has no update available', () => {
+  test.use({
+    mockData: [{
+      settings: {
+        appearance: { language: 'en' },
+        update: { updateApp: true },
+      },
+      updater: { configured: true, available: false },
+    }, { scope: 'test' }],
+  });
+
   test('it shows no alert', async ({ page }) => {
     await page.goto('/');
     const updateAlert = page.getByTestId('updater-alert');

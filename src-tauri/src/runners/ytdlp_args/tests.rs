@@ -801,7 +801,7 @@ fn restrict_filenames_omits_flag_on_disable() {
 }
 
 #[test]
-fn save_thumbnail_adds_write_thumbnail_flag() {
+fn save_thumbnail_writes_and_converts_thumbnail_to_jpg() {
   let format_options = make_video_format_options(Some(720), Some(60));
 
   let mut settings = OutputSettings::default();
@@ -811,6 +811,11 @@ fn save_thumbnail_adds_write_thumbnail_flag() {
   let args = build_output_args(&format_options, &settings, None).unwrap();
 
   assert!(args.contains(&"--write-thumbnail".to_string()));
+  let conversion = args
+    .iter()
+    .position(|arg| arg == "--convert-thumbnails")
+    .expect("保存封面时应指定格式转换");
+  assert_eq!(args[conversion + 1], "jpg");
 }
 
 #[test]

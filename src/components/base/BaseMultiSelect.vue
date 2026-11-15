@@ -19,7 +19,7 @@
               :key="selectedValue"
               class="badge badge-neutral gap-1 whitespace-nowrap"
               role="group"
-              :aria-label="`Selected ${getLabelForValue(selectedValue)}`"
+              :aria-label="`${isSimplifiedChinese ? '已选择' : 'Selected'} ${getLabelForValue(selectedValue)}`"
               @click="focusTextInput()"
           >
             <slot
@@ -31,7 +31,7 @@
                   class="btn btn-ghost btn-xs p-0 ml-1"
                   type="button"
                   @click.stop="removeSelectedValue(selectedValue)"
-                  :aria-label="`Remove ${getLabelForValue(selectedValue)}`"
+                  :aria-label="`${isSimplifiedChinese ? '移除' : 'Remove'} ${getLabelForValue(selectedValue)}`"
               >
                 <XMarkIcon class="w-4 h-4" aria-hidden="true" />
               </button>
@@ -60,7 +60,7 @@
               class="btn btn-ghost btn-xs"
               type="button"
               @click="clearAllSelections"
-              aria-label="Clear selections"
+              :aria-label="isSimplifiedChinese ? '清除选择' : 'Clear selections'"
           >
             <XMarkIcon class="w-4 h-4" aria-hidden="true" />
           </button>
@@ -69,7 +69,7 @@
               class="btn btn-ghost btn-xs"
               type="button"
               @pointerdown.prevent.stop="toggleOpen"
-              :aria-label="isOpen ? 'Close options' : 'Open options'"
+              :aria-label="isSimplifiedChinese ? (isOpen ? '收起选项' : '展开选项') : (isOpen ? 'Close options' : 'Open options')"
               :aria-expanded="isOpen ? 'true' : 'false'"
               :aria-controls="listboxId"
           >
@@ -135,6 +135,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { XMarkIcon, ChevronDownIcon, CheckIcon } from '@heroicons/vue/24/solid';
+import { i18n } from '../../i18n';
+
+const isSimplifiedChinese = computed(() => i18n.global.locale.value === 'zh-CN');
 
 type MultiSelectMaxHeight = 'sm' | 'md' | 'lg' | 'xl';
 
@@ -182,7 +185,7 @@ const listboxId: string = `ms-listbox-${Math.random().toString(36).slice(2)}`;
 const inputId: string = `ms-input-${Math.random().toString(36).slice(2)}`;
 const activeDescendantId = computed<string>(() => getOptionId(activeOptionIndex.value));
 
-const emptyText = computed<string>(() => props.emptyText ?? 'No matches');
+const emptyText = computed<string>(() => props.emptyText ?? (isSimplifiedChinese.value ? '无匹配项' : 'No matches'));
 const internalSelectedValues = computed<string[]>({
   get: () => model.value,
   set: (next) => { model.value = [...next]; },

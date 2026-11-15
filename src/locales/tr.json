@@ -804,7 +804,7 @@
       },
       "autoStart": {
         "label": "Oturum açışında başlat",
-        "hint": "Oturum açtığınızda Open Video Downloader'ı' otomatik olarak başlat."
+        "hint": "Oturum açtığınızda JJYB-YouTube-dl'ı' otomatik olarak başlat."
       },
       "autoStartMinimised": {
         "label": {
@@ -1063,7 +1063,7 @@
   },
   "about": {
     "title": "Hakkında",
-    "credit": "jely2002 & katkıda bulunanlar tarafından ❤ ile yapıldı",
+    "credit": "jianjieyiban tarafından değiştirildi; kaynak: jely2002/youtube-dl-gui ve katkıda bulunanlar; AGPL-3.0-or-later",
     "poweredBy": "Açık kaynakla güç bulmuştur:",
     "viewLicenses": "Lisanlara göz at",
     "version": "Sürüm: {version}",

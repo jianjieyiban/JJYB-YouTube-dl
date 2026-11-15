@@ -3,15 +3,25 @@ import { emit } from '@tauri-apps/api/event';
 import { UpdaterCheckPayload, UpdaterDownloadProgressPayload } from '../../../src/tauri/types/updater';
 
 export type UpdaterMockData = {
+  configured?: boolean;
+  reason?: string | null;
   available?: boolean;
   currentVersion?: string;
   availableVersion?: string;
 };
 
 export const updateHandlers: Record<string, IPCHandler> = {
+  updater_status: () => ({
+    configured: window.E2E.updater?.configured ?? false,
+    reason: window.E2E.updater?.configured ? null : (window.E2E.updater?.reason ?? '未配置自有更新公钥'),
+    releasesUrl: 'https://github.com/jianjieyiban/JJYB-YouTube-dl/releases',
+  }),
   updater_check: (): UpdaterCheckPayload => {
     return {
-      available: window.E2E.updater?.available ?? false,
+      configured: window.E2E.updater?.configured ?? false,
+      reason: window.E2E.updater?.configured ? null : '未配置自有更新公钥',
+      releasesUrl: 'https://github.com/jianjieyiban/JJYB-YouTube-dl/releases',
+      available: !!window.E2E.updater?.configured && !!window.E2E.updater?.available,
       currentVersion: window.E2E.updater?.currentVersion ?? '1.0.0',
       availableVersion: window.E2E.updater?.availableVersion,
     };

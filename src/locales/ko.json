@@ -901,7 +901,7 @@
       },
       "autoStart": {
         "label": "로그인 시 자동 시작",
-        "hint": "로그인할 때 Open Video Downloader를 자동으로 실행합니다."
+        "hint": "로그인할 때 JJYB-YouTube-dl를 자동으로 실행합니다."
       },
       "autoStartMinimised": {
         "label": {
@@ -1160,7 +1160,7 @@
   },
   "about": {
     "title": "정보",
-    "credit": "jely2002 및 기여자가 ❤로 만듦",
+    "credit": "jianjieyiban 수정판; 원본: jely2002/youtube-dl-gui 및 기여자; AGPL-3.0-or-later",
     "poweredBy": "오픈소스로 제작됨:",
     "viewLicenses": "라이선스 보기",
     "version": "버전: {version}",

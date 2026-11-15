@@ -15,14 +15,23 @@ pub struct UpdateStore {
   pub bytes: Option<Vec<u8>>,
 }
 
+impl UpdateStore {
+  pub fn clear(&mut self) {
+    self.update = None;
+    self.bytes = None;
+  }
+}
+
 #[tauri::command]
 pub async fn updater_download(app: AppHandle, store: State<'_, Mutex<UpdateStore>>) -> Result<()> {
-  let update = {
-    let s = store.lock().await;
-    s.update
-      .clone()
-      .ok_or_else(|| io::Error::other("no update available"))?
-  };
+  let mut s = store.lock().await;
+  s.bytes = None;
+  if !super::configuration(&app).configured {
+    s.clear();
+    return Err(io::Error::other("未配置自有更新公钥").into());
+  }
+  let update = s.update.clone()
+    .ok_or_else(|| io::Error::other("no update available"))?;
   let app_for_progress = app.clone();
   let app_for_error = app.clone();
 
@@ -48,11 +57,11 @@ pub async fn updater_download(app: AppHandle, store: State<'_, Mutex<UpdateStore
 
   match bytes {
     Ok(bytes) => {
-      let mut s = store.lock().await;
       s.bytes = Some(bytes);
       Ok(())
     }
     Err(e) => {
+      s.clear();
       tracing::info!("[updater] Update download failed: {e}");
       let _ = app_for_error.emit("updater_error", e.to_string());
       Err(e)

@@ -17,6 +17,13 @@
     </base-sub-nav>
 
     <section class="flex flex-col px-8 py-4">
+      <base-fieldset :legend="t('subtitles.task.priorityLegend')" :label="t('subtitles.task.priorityOrder')">
+        <label class="flex items-center gap-3">
+          <input id="chinese-priority" v-model="subtitleSettings.chinesePriority" type="checkbox" class="toggle toggle-primary" />
+          <span>{{ t('subtitles.task.priorityLabel') }}</span>
+        </label>
+        <p class="mt-3 text-sm text-base-content/70">{{ t('subtitles.task.defaultsHint') }}</p>
+      </base-fieldset>
       <base-fieldset
         :legend="t('subtitles.options.languages.legend')"
         :label="t('subtitles.options.languages.legendLabel')"
@@ -65,9 +72,9 @@
                   @change="toggleLanguage(option.code)"
                 />
                 <span class="flex flex-col">
-                  <span class="font-medium">{{ option.englishName }}</span>
+                  <span class="font-medium">{{ getSubtitleLanguageLabel(option.code, locale) }}</span>
                   <span
-                    v-if="option.nativeName && option.nativeName !== option.englishName"
+                    v-if="locale !== 'zh-CN' && option.nativeName && option.nativeName !== option.englishName"
                     class="text-xs text-base-content/60"
                   >
                     {{ option.nativeName }}
@@ -174,7 +181,7 @@ import { useToastStore } from '../../stores/toast.ts';
 import { useI18n } from 'vue-i18n';
 import type { SubtitleSettings } from '../../tauri/types/config.ts';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const settingsStore = useSettingsStore();
 const toastStore = useToastStore();
 
@@ -236,7 +243,8 @@ function matchesQuery(option: SubtitleLanguageOption): boolean {
   }
 
   return (
-    option.englishName.toLowerCase().includes(query)
+    getSubtitleLanguageLabel(option.code, locale.value).toLowerCase().includes(query)
+    || option.englishName.toLowerCase().includes(query)
     || option.nativeName.toLowerCase().includes(query)
     || option.code.toLowerCase().includes(query)
   );
@@ -252,7 +260,7 @@ const selectedLanguageBadges = computed(() => {
   }
 
   return languageSelection.value
-    .map(code => getSubtitleLanguageLabel(code))
+    .map(code => getSubtitleLanguageLabel(code, locale.value))
     .filter((label, index, array) => array.indexOf(label) === index);
 });
 

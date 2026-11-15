@@ -41,16 +41,25 @@ pub async fn run_ytdlp_download(
   app: AppHandle,
   entry: DownloadEntry,
 ) -> Result<(), YtdlpDownloadError> {
+  let manifest = tempfile::NamedTempFile::new().map_err(|e| YtdlpDownloadError::InvalidArguments(e.to_string()))?;
+  let media_manifest = tempfile::NamedTempFile::new().map_err(|e| YtdlpDownloadError::InvalidArguments(e.to_string()))?;
+  let config = app.state::<crate::SharedConfig>().load();
+  let subtitle_settings: crate::state::config_models::SubtitleSettings = crate::runners::override_resolver::resolve_with_patch(
+    &config.subtitles, entry.overrides.as_ref().and_then(|value| value.subtitles.as_ref()));
   let runner = YtdlpRunner::new(&app)
     .with_progress_args()
     .with_network_args(entry.overrides.as_ref())
     .with_auth_args(entry.overrides.as_ref())
     .with_subtitle_args(entry.overrides.as_ref(), entry.subtitle_inventory.as_ref())
-    .with_sponsorblock_args(entry.overrides.as_ref())
-    .with_format_args(&entry.format, entry.overrides.as_ref())
-    .with_input_filter_args(entry.overrides.as_ref())
-    .with_input_args(entry.overrides.as_ref());
-  let output_args = match runner.output_args(&entry.format, entry.overrides.as_ref()) {
+    .with_input_filter_args(entry.overrides.as_ref());
+  let runner = if entry.subtitles_only {
+    runner.with_args(["--skip-download"])
+  } else {
+    runner.with_sponsorblock_args(entry.overrides.as_ref())
+      .with_format_args(&entry.format, entry.overrides.as_ref())
+      .with_input_args(entry.overrides.as_ref())
+  };
+  let output_args = match if entry.subtitles_only { Ok(Vec::new()) } else { runner.output_args(&entry.format, entry.overrides.as_ref()) } {
     Ok(args) => args,
     Err(err) => {
       emit_internal_fatal(
@@ -69,6 +78,7 @@ pub async fn run_ytdlp_download(
       &entry.template_context,
       entry.overrides.as_ref(),
     )
+    .with_args(["--no-simulate".to_string(), "--print-to-file".into(), if entry.subtitles_only { "before_dl:%(requested_subtitles)j".into() } else { "after_move:%(requested_subtitles)j".into() }, manifest.path().to_string_lossy().into_owned(), "--print-to-file".into(), "after_move:%(filepath)j".into(), media_manifest.path().to_string_lossy().into_owned()])
     .with_url(&entry.url);
 
   static RULES_JSON: &str = include_str!("../diagnostic_rules.json");
@@ -144,6 +154,23 @@ pub async fn run_ytdlp_download(
           }
           YtdlpCommandEvent::Terminated(term) => {
             if term.code == Some(0) {
+              let explicit_tracks = entry.overrides.as_ref().and_then(|value| value.subtitles.as_ref()).is_some_and(|value| value.manual_languages.is_some() || value.auto_languages.is_some());
+              let result = crate::runners::subtitles::finish_subtitles(manifest.path(), subtitle_settings.chinese_priority && !explicit_tracks, entry.subtitles_only || subtitle_settings.enabled);
+              let subtitles = match result {
+                Ok(files) => files,
+                Err(err) => {
+                  emit_internal_fatal(&app, &entry, format!("Subtitle processing failed: {err}"), Some(err.clone()));
+                  return Err(YtdlpDownloadError::RunnerError(err));
+                }
+              };
+              if !entry.subtitles_only && subtitle_settings.embed_subtitles && !subtitles.is_empty() {
+                if let Err(err) = embed_subtitles(&app, media_manifest.path(), &subtitles, &mut cancel_rx).await {
+                  if is_cancelled_now(&cancel_rx) { return Ok(()); }
+                  emit_internal_fatal(&app, &entry, format!("Subtitle embedding failed: {err}"), Some(err.clone()));
+                  return Err(YtdlpDownloadError::RunnerError(err));
+                }
+              }
+              if is_cancelled_now(&cancel_rx) { return Ok(()); }
               let _ = app.emit(
                 "media_complete",
                 MediaProgressComplete {
@@ -191,6 +218,11 @@ pub async fn run_ytdlp_download(
     None,
   );
   Err(YtdlpDownloadError::EventStreamEnded)
+}
+
+async fn embed_subtitles(app: &AppHandle, manifest: &std::path::Path, subtitles: &[std::path::PathBuf], cancel: &mut watch::Receiver<bool>) -> Result<(), String> {
+  let binary = app.state::<crate::paths::PathsManager>().bin_dir().join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" });
+  super::subtitle_embed::embed_with_binary(&binary, manifest, subtitles, cancel).await
 }
 
 fn emit_internal_fatal(

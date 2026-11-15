@@ -27,10 +27,10 @@ fn setup_macos(handle: &AppHandle) {
 
   let app_submenu = SubmenuBuilder::new(handle, "App")
     .about(Some(AboutMetadata {
-      name: Some("Open Video Downloader".into()),
+      name: Some("JJYB-YouTube-dl".into()),
       copyright: Some("© Jelle Glebbeek and contributors".into()),
-      license: Some("GNU Affero General Public License v3.0".into()),
-      website: Some("https://jely2002.github.io/youtube-dl-gui/".into()),
+      license: Some("GNU Affero General Public License v3.0 or later".into()),
+      website: Some("https://github.com/jianjieyiban/JJYB-YouTube-dl".into()),
       ..Default::default()
     }))
     .separator()

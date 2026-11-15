@@ -6,14 +6,14 @@
         IgnorableNamespaces="uap rescap">
 
     <Identity
-            Name="3216JelleGlebbeek.youtube-dl-gui"
-            Publisher="CN=EBDD6AA4-D72E-42C6-BBCB-A288476F0CBE"
+            Name="jianjieyiban.JJYB-YouTube-dl"
+            Publisher="CN=jianjieyiban"
             Version="3.2.1.0"
             ProcessorArchitecture="x64" />
 
     <Properties>
-        <DisplayName>Open Video Downloader</DisplayName>
-        <PublisherDisplayName>Jelle Glebbeek</PublisherDisplayName>
+        <DisplayName>JJYB-YouTube-dl</DisplayName>
+        <PublisherDisplayName>jianjieyiban</PublisherDisplayName>
         <Logo>Assets\StoreLogo.png</Logo>
     </Properties>
 
@@ -38,16 +38,16 @@
 
     <Applications>
         <Application
-                Id="OpenVideoDownloader"
-                Executable="Open Video Downloader\open-video-downloader.exe"
+                Id="JJYBYouTubeDl"
+                Executable="JJYB-YouTube-dl\jjyb-youtube-dl.exe"
                 EntryPoint="Windows.FullTrustApplication">
 
             <uap:VisualElements
                     BackgroundColor="transparent"
-                    DisplayName="Open Video Downloader"
+                    DisplayName="JJYB-YouTube-dl"
                     Square150x150Logo="Assets\Square150x150Logo.png"
                     Square44x44Logo="Assets\Square44x44Logo.png"
-                    Description="Open Video Downloader">
+                    Description="JJYB-YouTube-dl">
                 <uap:DefaultTile
                         Wide310x150Logo="Assets\Wide310x150Logo.png"
                         Square310x310Logo="Assets\Square310x310Logo.png"

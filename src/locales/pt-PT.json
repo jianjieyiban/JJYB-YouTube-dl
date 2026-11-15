@@ -776,7 +776,7 @@
       },
       "autoStart": {
         "label": "Iniciar ao iniciar sessão",
-        "hint": "Inicia o Open Video Downloader automaticamente quando iniciares sessão."
+        "hint": "Inicia o JJYB-YouTube-dl automaticamente quando iniciares sessão."
       },
       "autoStartMinimised": {
         "label": {
@@ -1031,7 +1031,7 @@
   },
   "about": {
     "title": "Acerca de",
-    "credit": "Feito com ❤ por jely2002 e colaboradores",
+    "credit": "Modificado por jianjieyiban, baseado em jely2002/youtube-dl-gui e colaboradores; AGPL-3.0-or-later",
     "poweredBy": "Baseado em código aberto:",
     "viewLicenses": "Ver licenças",
     "version": "Versão: {version}",

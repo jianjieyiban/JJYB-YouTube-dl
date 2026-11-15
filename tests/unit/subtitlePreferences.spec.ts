@@ -26,12 +26,17 @@ describe('subtitle helpers', () => {
     expect(getSubtitleLanguageLabel('nl-orig')).toBe('Dutch (Original audio)');
   });
 
-  it('prefers plain auto subtitle codes when both plain and orig exist', () => {
-    expect(getPreferredAutoSubtitleLanguages(['en-orig', 'en', 'nl-orig'])).toEqual(['en', 'nl-orig']);
+  it('displays subtitle languages and original audio in Simplified Chinese', () => {
+    expect(getSubtitleLanguageLabel('en', 'zh-CN')).toBe('英语');
+    expect(getSubtitleLanguageLabel('en-orig', 'zh-CN')).toBe('英语（原始音频）');
   });
 
-  it('hides translation-only auto subtitle codes when orig variants exist', () => {
-    expect(getPreferredAutoSubtitleLanguages(['en', 'en-orig', 'de', 'fr'])).toEqual(['en']);
+  it('preserves distinct plain and original auto subtitle track IDs', () => {
+    expect(getPreferredAutoSubtitleLanguages(['en-orig', 'en', 'nl-orig'])).toEqual(['en', 'en-orig', 'nl-orig']);
+  });
+
+  it('keeps platform translation candidates and original track IDs', () => {
+    expect(getPreferredAutoSubtitleLanguages(['en', 'en-orig', 'de', 'fr'])).toEqual(['de', 'en', 'en-orig', 'fr']);
   });
 
   it('sanitizes subtitle formats with sensible fallbacks', () => {

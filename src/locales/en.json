@@ -363,6 +363,19 @@
   },
   "subtitles": {
     "title": "Subtitles",
+    "task": {
+      "legend": "Subtitle task",
+      "only": "Subtitles only",
+      "onlyHint": "Subtitles only (no audio or video)",
+      "platformHint": "Only platform subtitles or translation tracks are extracted. No speech transcription is performed when subtitles are unavailable.",
+      "priorityLegend": "Chinese priority policy",
+      "priorityOrder": "Existing Simplified Chinese → Traditional converted to Simplified → platform Chinese translation; prefer manual subtitles at each level.",
+      "priorityLabel": "Chinese priority (English, Japanese and Korean can also be selected)",
+      "priorityShort": "Chinese priority: Simplified → Traditional converted to Simplified → platform Chinese translation",
+      "explicitHint": "Explicit track selections take precedence over Chinese priority. English, Japanese, Korean and translated tracks are available only when provided by the platform. Missing Chinese subtitles or translations are reported, not replaced with English.",
+      "defaultsHint": "Save a standalone SRT by default; ordinary videos may also embed subtitles. Only platform subtitles or translation tracks are extracted; no speech transcription is performed when subtitles are unavailable.",
+      "noEmbedding": "Subtitle-only tasks save standalone subtitle files (SRT by default); there is no video to embed them in."
+    },
     "defaults": {
       "legend": "Subtitle defaults",
       "hint": "Used when a video has subtitles."
@@ -901,7 +914,7 @@
       },
       "autoStart": {
         "label": "Start at login",
-        "hint": "Launch Open Video Downloader automatically when you sign in."
+        "hint": "Launch JJYB-YouTube-dl automatically when you sign in."
       },
       "autoStartMinimised": {
         "label": {
@@ -1160,7 +1173,7 @@
   },
   "about": {
     "title": "About",
-    "credit": "Made with ❤ by jely2002 & contributors",
+    "credit": "Modified by jianjieyiban from jely2002/youtube-dl-gui and contributors; AGPL-3.0-or-later",
     "poweredBy": "Powered by open source:",
     "viewLicenses": "View licenses",
     "version": "Version: {version}",

@@ -15,7 +15,7 @@
     <span class="label mb-2 gap-1">
       <i18n-t keypath="auth.cookies.file.hint" scope="global">
         <template #link>
-          <a href="https://github.com/jely2002/youtube-dl-gui/wiki/Tutorial:-Private-videos-&-playlists" class="link" target="_blank" rel="noopener">
+          <a href="https://github.com/jianjieyiban/JJYB-YouTube-dl/blob/main/README.md#cookies" class="link" target="_blank" rel="noopener">
             {{ t('auth.cookies.file.hintLink') }}
           </a>
         </template>
@@ -41,7 +41,7 @@
     <span class="label mb-2 gap-1">
       <i18n-t keypath="auth.cookies.browser.hint" scope="global">
         <template #link>
-          <a href="https://github.com/jely2002/youtube-dl-gui/wiki/Cookie-extraction:-supported-browsers" class="link" target="_blank" rel="noopener">
+          <a href="https://github.com/jianjieyiban/JJYB-YouTube-dl/blob/main/README.md#cookies" class="link" target="_blank" rel="noopener">
             {{ t('auth.cookies.browser.hintLink') }}
           </a>
         </template>

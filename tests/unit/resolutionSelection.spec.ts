@@ -43,6 +43,14 @@ describe('resolveSelectableValue', () => {
 });
 
 describe('buildTrackOptions', () => {
+  it('localizes audio track language labels in Simplified Chinese', () => {
+    const options = buildTrackOptions(
+      [{ id: 'en', label: 'English', language: 'en', audioChannels: 2 }],
+      undefined, undefined, '不可用', '可用分辨率', 'zh-CN',
+    );
+    expect(options[0].label).toBe('英语 - 2声道');
+  });
+
   const tracks: MediaTrack[] = [
     { id: 'lang:fr|channels:2', label: 'French stereo', language: 'fr', audioChannels: 2 },
     { id: 'lang:en|channels:2', label: 'English stereo', language: 'en', audioChannels: 2 },

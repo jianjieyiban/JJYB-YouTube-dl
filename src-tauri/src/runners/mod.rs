@@ -1,3 +1,5 @@
+mod subtitle_embed;
+pub mod subtitles;
 pub mod override_resolver;
 pub mod template_context;
 pub mod ytdlp_args;

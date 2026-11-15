@@ -804,7 +804,7 @@
       },
       "autoStart": {
         "label": "登入時啟動",
-        "hint": "登入時自動啟動 Open Video Downloader。"
+        "hint": "登入時自動啟動 JJYB-YouTube-dl。"
       },
       "autoStartMinimised": {
         "label": {
@@ -1063,7 +1063,7 @@
   },
   "about": {
     "title": "關於",
-    "credit": "由 jely2002 與貢獻者用 ❤ 製作",
+    "credit": "由 jianjieyiban 修改，基於 jely2002/youtube-dl-gui 及其貢獻者的成果；依 AGPL-3.0-or-later 授權發布",
     "poweredBy": "採用開放原始碼:",
     "viewLicenses": "檢視授權",
     "version": "版本: {version}",

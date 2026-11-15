@@ -30,3 +30,20 @@ licenses/*
 # Tests
 test-results/
 coverage/
+
+# Local credentials and runtime data (never publish)
+.env
+.env.*
+!.env.example
+*.key
+*.key.pub
+*.pem
+*.p12
+*.pfx
+cookies.txt
+*.cookies.txt
+jjyb-portable/
+ovd-portable/
+config.store.json
+preferences.store.json
+*.stronghold

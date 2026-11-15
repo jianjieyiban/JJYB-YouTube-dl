@@ -86,6 +86,8 @@ pub struct DownloadItem {
   pub url: String,
   pub format: FormatOptions,
   #[serde(default)]
+  pub subtitles_only: bool,
+  #[serde(default)]
   pub subtitle_inventory: Option<SubtitleInventory>,
   #[serde(default)]
   pub overrides: Option<DownloadOverrides>,
@@ -191,6 +193,7 @@ pub struct NetworkOverrides {
 #[serde(rename_all = "camelCase")]
 pub struct SubtitleOverrides {
   pub enabled: Option<bool>,
+  pub chinese_priority: Option<bool>,
   pub include_auto_generated: Option<bool>,
   pub languages: Option<Vec<String>>,
   pub manual_languages: Option<Vec<String>>,

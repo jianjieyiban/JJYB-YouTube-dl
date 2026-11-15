@@ -626,7 +626,7 @@
     },
     "input": {
       "legend": "Entrada",
-      "legendLabel": "Elige cómo comenzar a descargar con Open Video Downloader.",
+      "legendLabel": "Elige cómo comenzar a descargar con JJYB-YouTube-dl.",
       "autoFillClipboard": {
         "label": "Completar enlaces automáticamente:",
         "hint": "Detecta automáticamente los enlaces del portapapeles para que puedas descargarlos con un solo clic."
@@ -901,7 +901,7 @@
       },
       "autoStart": {
         "label": "Ejecutar al iniciar sesión",
-        "hint": "Lanza Open Video Downloader automáticamente cuando inicies sesión."
+        "hint": "Lanza JJYB-YouTube-dl automáticamente cuando inicies sesión."
       },
       "autoStartMinimised": {
         "label": {
@@ -1160,7 +1160,7 @@
   },
   "about": {
     "title": "Acerca de",
-    "credit": "Hecho con ❤ por jely2002 y colaboradores",
+    "credit": "Modificado por jianjieyiban, basado en jely2002/youtube-dl-gui y colaboradores; AGPL-3.0-or-later",
     "poweredBy": "Impulsado por código abierto:",
     "viewLicenses": "Ver licencias",
     "version": "Versión: {version}",

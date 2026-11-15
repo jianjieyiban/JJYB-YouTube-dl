@@ -13,6 +13,9 @@ jobs:
     env:
       WINDOWS_PFX_B64: ${{ secrets.WINDOWS_PFX_B64 }}
       WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
     strategy:
       fail-fast: false
       matrix:
@@ -56,6 +59,26 @@ jobs:
         with:
           node-version: 24
           cache: 'npm'
+
+      - name: Prepare signed updater configuration
+        id: updater-config
+        shell: node {0}
+        env:
+          TAURI_SIGNING_PUBLIC_KEY: ${{ vars.TAURI_SIGNING_PUBLIC_KEY || secrets.TAURI_SIGNING_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const publicKey = process.env.TAURI_SIGNING_PUBLIC_KEY?.trim();
+          if (!publicKey) {
+            throw new Error('Signed releases require repository variable or secret TAURI_SIGNING_PUBLIC_KEY.');
+          }
+          if (!process.env.TAURI_SIGNING_PRIVATE_KEY?.trim()) {
+            throw new Error('Signed releases require repository secret TAURI_SIGNING_PRIVATE_KEY.');
+          }
+          const configPath = path.join(process.env.RUNNER_TEMP, 'jjyb-updater-config.json');
+          fs.writeFileSync(configPath, JSON.stringify({ plugins: { updater: { pubkey: publicKey } } }), 'utf8');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `path=${configPath}\n`, 'utf8');
 
       - name: install Rust 1.94.1
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # rust-toolchain action
@@ -102,7 +125,7 @@ jobs:
           printf '%s' "$APPLE_API_KEY_P8" > "$APPLE_API_KEY_PATH"
 
       - name: Setup Sentry CLI
-        if: matrix.platform != 'windows-11-arm'
+        if: matrix.platform != 'windows-11-arm' && env.SENTRY_AUTH_TOKEN != '' && env.SENTRY_ORG != '' && env.SENTRY_PROJECT != ''
         uses: matbour/setup-sentry-cli@ac9d752ca8f44ef545fb2ce2dcd329cce57d778b # v2
         with:
           version: 2.58.2
@@ -146,8 +169,8 @@ jobs:
           TAURI_BUNDLER_NEW_APPIMAGE_FORMAT: "true"
         with:
           tagName: app-v__VERSION__
-          releaseName: 'Open Video Downloader v__VERSION__'
-          releaseBody: 'See the assets to download this version and install. If you have an existing install, it will auto-update on launch.'
+          releaseName: 'JJYB-YouTube-dl v__VERSION__'
+          releaseBody: 'Download and install the appropriate asset. Application updates are available only after this fork configures its own signed update endpoint and public key.'
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
@@ -155,7 +178,7 @@ jobs:
           # TEMPORARY WORKAROUND:
           # This option is needed to use the possibly overriden branch of tauri-cli, to fix appimages.
           tauriScript: 'cargo tauri'
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} --config "${{ steps.updater-config.outputs.path }}"
 
       - name: Create public PDBs (Windows only)
         if: matrix.platform == 'windows-latest' || matrix.platform == 'windows-11-arm'
@@ -195,7 +218,7 @@ jobs:
           }
 
       - name: Upload debug symbols to Sentry
-        if: matrix.platform != 'windows-11-arm'
+        if: matrix.platform != 'windows-11-arm' && env.SENTRY_AUTH_TOKEN != '' && env.SENTRY_ORG != '' && env.SENTRY_PROJECT != ''
         shell: bash
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -203,7 +226,7 @@ jobs:
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         run: |
           VERSION="$(node -p 'require("./package.json").version')"
-          SENTRY_RELEASE="ovd@${VERSION}"
+          SENTRY_RELEASE="jjyb-youtube-dl@${VERSION}"
           export SENTRY_RELEASE
           
           echo "Using Sentry release: $SENTRY_RELEASE"
@@ -234,7 +257,7 @@ jobs:
         run: |
           $releaseDir = "src-tauri/target/release"
           $layoutRoot = "portable-layout"
-          $portableFolder = "ovd-portable"
+          $portableFolder = "jjyb-portable"
 
           $pkg = Get-Content -Raw "package.json" | ConvertFrom-Json
           $version = $pkg.version
@@ -242,8 +265,8 @@ jobs:
           # Detect architecture
           $arch = if ($env:RUNNER_ARCH -eq 'ARM64') { 'arm64' } else { 'x64' }
           
-          $zipName = "Open.Video.Downloader_$($version)_$($arch)-portable.zip"
-          $exeName = "Open.Video.Downloader_$($version)_$($arch).exe"
+          $zipName = "JJYB-YouTube-dl_$($version)_$($arch)-portable.zip"
+          $exeName = "JJYB-YouTube-dl_$($version)_$($arch).exe"
           $keepFileName = ".keep"
           
           $tagName = "app-v$version"
@@ -291,14 +314,14 @@ jobs:
         if: matrix.platform == 'windows-latest' || matrix.platform == 'windows-11-arm'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ovd-msix-${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
-          path: OpenVideoDownloader_${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}.msix
+          name: jjyb-msix-${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
+          path: JJYB-YouTube-dl_${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}.msix
 
       - name: Upload PDB symbols (Windows only)
         if: matrix.platform == 'windows-latest' || matrix.platform == 'windows-11-arm'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ovd-pdb-${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
+          name: jjyb-pdb-${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
           path: src-tauri/target/release/public-pdb/*.pdb
 
   package-appxupload:
@@ -310,25 +333,25 @@ jobs:
       - name: Download x64 MSIX
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: ovd-msix-x64
+          name: jjyb-msix-x64
           path: dist/msix/x64
 
       - name: Download arm64 MSIX
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: ovd-msix-arm64
+          name: jjyb-msix-arm64
           path: dist/msix/arm64
 
       - name: Download x64 PDB symbols
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: ovd-pdb-x64
+          name: jjyb-pdb-x64
           path: dist/symbols/x64
 
       - name: Download arm64 PDB symbols
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: ovd-pdb-arm64
+          name: jjyb-pdb-arm64
           path: dist/symbols/arm64
 
       - name: Create msixupload
@@ -354,24 +377,24 @@ jobs:
   
           $pdbs = Get-ChildItem -Path "dist/symbols" -Filter "*.pdb" -Recurse
           if (-not $pdbs) { throw "No PDB files found under dist/symbols" }
-          Compress-Archive -Path $pdbs.FullName -DestinationPath "OpenVideoDownloader.appxsym" -Force
+          Compress-Archive -Path $pdbs.FullName -DestinationPath "JJYB-YouTube-dl.appxsym" -Force
   
           if (Test-Path "bundle_in") { Remove-Item "bundle_in" -Recurse -Force }
           New-Item -ItemType Directory -Force -Path "bundle_in" | Out-Null
-          Copy-Item $x64.FullName "bundle_in\OpenVideoDownloader_x64.msix" -Force
-          Copy-Item $arm64.FullName "bundle_in\OpenVideoDownloader_arm64.msix" -Force
+          Copy-Item $x64.FullName "bundle_in\JJYB-YouTube-dl_x64.msix" -Force
+          Copy-Item $arm64.FullName "bundle_in\JJYB-YouTube-dl_arm64.msix" -Force
   
-          & $makeappx bundle /d "bundle_in" /p "OpenVideoDownloader.msixbundle" /bv $version | Out-Null
+          & $makeappx bundle /d "bundle_in" /p "JJYB-YouTube-dl.msixbundle" /bv $version | Out-Null
   
           if (Test-Path "upload") { Remove-Item "upload" -Recurse -Force }
           New-Item -ItemType Directory -Force -Path "upload" | Out-Null
-          Copy-Item "OpenVideoDownloader.msixbundle" "upload\" -Force
-          Copy-Item "OpenVideoDownloader.appxsym" "upload\" -Force
+          Copy-Item "JJYB-YouTube-dl.msixbundle" "upload\" -Force
+          Copy-Item "JJYB-YouTube-dl.appxsym" "upload\" -Force
   
-          Compress-Archive -Path "upload\*" -DestinationPath "OpenVideoDownloader.msixupload" -Force
+          Compress-Archive -Path "upload\*" -DestinationPath "JJYB-YouTube-dl.msixupload" -Force
 
       - name: Upload msixupload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ovd-msixupload
-          path: OpenVideoDownloader.msixupload
+          name: jjyb-msixupload
+          path: JJYB-YouTube-dl.msixupload

@@ -804,7 +804,7 @@
       },
       "autoStart": {
         "label": "Запускать при входе",
-        "hint": "Запускать Open Video Downloader автоматически при входе в систему."
+        "hint": "Запускать JJYB-YouTube-dl автоматически при входе в систему."
       },
       "autoStartMinimised": {
         "label": {
@@ -1063,7 +1063,7 @@
   },
   "about": {
     "title": "О программе",
-    "credit": "Сделано с ❤ jely2002 и участниками сообщества",
+    "credit": "Модификация jianjieyiban на основе jely2002/youtube-dl-gui и участников; AGPL-3.0-or-later",
     "poweredBy": "Основано на open-source:",
     "viewLicenses": "Просмотреть лицензии",
     "version": "Версия: {version}",

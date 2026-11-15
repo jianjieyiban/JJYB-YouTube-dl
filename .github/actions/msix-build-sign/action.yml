@@ -10,7 +10,7 @@ inputs:
   app-folder-name:
     description: 'App folder name under layout root'
     required: false
-    default: 'Open Video Downloader'
+    default: 'JJYB-YouTube-dl'
 
   manifest-path:
     description: 'Path to AppxManifest.xml (source)'
@@ -20,7 +20,7 @@ inputs:
   exe-path:
     description: 'Path to the built main .exe'
     required: false
-    default: 'src-tauri\target\release\open-video-downloader.exe'
+    default: 'src-tauri\target\release\jjyb-youtube-dl.exe'
 
   license-path:
     description: 'Path to 3rd party licenses file'
@@ -93,7 +93,7 @@ runs:
         $licenseSrc = '${{ inputs.license-path }}'
         $iconsGlob = '${{ inputs.icons-glob }}'
         $arch = '${{ inputs.architecture }}'
-        $msixPath = "OpenVideoDownloader_$arch.msix"
+        $msixPath = "JJYB-YouTube-dl_$arch.msix"
 
         $appFolder = Join-Path $layoutRoot $appFolderName
         $assetsFolder = Join-Path $layoutRoot "Assets"
@@ -101,7 +101,7 @@ runs:
 
         New-Item -ItemType Directory -Path $appFolder, $assetsFolder, $licenseFolder -Force | Out-Null
 
-        Copy-Item $exeSrc -Destination (Join-Path $appFolder "open-video-downloader.exe") -Force
+        Copy-Item $exeSrc -Destination (Join-Path $appFolder "jjyb-youtube-dl.exe") -Force
         Copy-Item $manifestSrc -Destination (Join-Path $layoutRoot "AppxManifest.xml") -Force
         Copy-Item $iconsGlob -Destination $assetsFolder -Recurse -Force
         Copy-Item $licenseSrc -Destination (Join-Path $licenseFolder "3rdpartylicenses.txt") -Force

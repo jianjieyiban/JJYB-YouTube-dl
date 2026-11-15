@@ -1,4 +1,5 @@
 import { computed, MaybeRefOrGetter, toValue } from 'vue';
+import { i18n } from '../i18n';
 import { DownloadOptions, MediaCodec, MediaFormat, MediaTrack, TrackType } from '../tauri/types/media';
 import {
   buildCodecOptions,
@@ -58,6 +59,7 @@ export function useMediaResolutionSelection(params: UseMediaResolutionSelectionP
       buildTrackResolutionLabels(toValue(params.formats), 'audioTrackIds'),
       toValue(params.unavailableTrackSuffix),
       toValue(params.availableTrackPrefix),
+      i18n.global.locale.value,
     ),
   );
 
@@ -68,6 +70,7 @@ export function useMediaResolutionSelection(params: UseMediaResolutionSelectionP
       buildTrackResolutionLabels(toValue(params.formats), 'videoTrackIds'),
       toValue(params.unavailableTrackSuffix),
       toValue(params.availableTrackPrefix),
+      i18n.global.locale.value,
     ),
   );
 

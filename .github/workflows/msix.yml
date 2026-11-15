@@ -69,5 +69,5 @@ jobs:
       - name: Upload MSIX artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ovd-msix-${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
-          path: OpenVideoDownloader_${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}.msix
+          name: jjyb-msix-${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
+          path: JJYB-YouTube-dl_${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}.msix

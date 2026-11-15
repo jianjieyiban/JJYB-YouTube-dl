@@ -82,6 +82,7 @@ export function buildTrackOptions(
   supportedTrackResolutions: Map<string, string[]> | undefined,
   unavailableSuffix: string,
   availableResolutionPrefix: string,
+  locale = 'en',
 ): SelectOption[] {
   const isUnrestricted = availableTrackIds === undefined;
   const availableIds = new Set((availableTrackIds ?? []).map(id => id.trim()).filter(Boolean));
@@ -90,7 +91,7 @@ export function buildTrackOptions(
   tracks?.forEach((track, index) => {
     if (!track?.id || track.id === 'auto') return;
 
-    const baseLabel = formatTrackLabel(track);
+    const baseLabel = formatTrackLabel(track, locale);
     const available = isUnrestricted || availableIds.has(track.id);
     const supportedResolutions = supportedTrackResolutions?.get(track.id) ?? [];
     const unavailableLabel = supportedResolutions.length
@@ -144,13 +145,15 @@ export function buildTrackResolutionLabels(
   return labelsByTrack;
 }
 
-function formatTrackLabel(track: MediaTrack): string {
+function formatTrackLabel(track: MediaTrack, locale: string): string {
   if (track.id === 'auto') return track.label || 'Auto';
 
   const parts: string[] = [];
-  const languageName = resolveLanguageName(track.language);
+  const languageName = locale === 'zh-CN' && track.language
+    ? new Intl.DisplayNames(['zh-CN'], { type: 'language' }).of(track.language.replace('_', '-'))
+    : resolveLanguageName(track.language);
   if (languageName) parts.push(languageName);
-  if (track.audioChannels) parts.push(`${track.audioChannels}ch`);
+  if (track.audioChannels) parts.push(`${track.audioChannels}${locale === 'zh-CN' ? '声道' : 'ch'}`);
 
   if (parts.length > 0) return parts.join(' - ');
   return track.label || track.id;

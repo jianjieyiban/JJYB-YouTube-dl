@@ -124,6 +124,9 @@ fn push_common_output_flags(
 
   if output_settings.save_thumbnail {
     args.push("--write-thumbnail".into());
+    // 将封面统一转换为 JPG，方便图片查看器直接打开。
+    args.push("--convert-thumbnails".into());
+    args.push("jpg".into());
   }
 
   if output_settings.restrict_filenames {

@@ -1,0 +1,7 @@
+This application uses ferrous-opencc 0.4.0, a pure Rust OpenCC-compatible converter.
+Source: https://github.com/apoint123/ferrous-opencc
+License: Apache License 2.0 (see LICENSE-OpenCC-Apache-2.0).
+The embedded OpenCC dictionaries originate from OpenCC:
+https://github.com/BYVoid/OpenCC
+Copyright (c) 2010-2025 BYVoid and OpenCC contributors.
+OpenCC is licensed under Apache License 2.0.

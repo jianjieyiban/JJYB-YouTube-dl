@@ -3,6 +3,7 @@
     <base-sub-nav>
       <button v-if="isPaused" @click="downloadItem" class="btn btn-warning">{{ t('common.resume') }}</button>
       <button v-else @click="downloadItem" class="btn btn-primary">{{ t('common.download') }}</button>
+      <button v-if="!isPaused" class="btn btn-secondary" @click="downloadSubtitles">{{ t('subtitles.task.only') }}</button>
       <template v-slot:title>
         <div role="tablist" class="tabs tabs-box flex gap-2">
           <router-link exactActiveClass="tab-active" role="tab" :to="{ name: 'group.metadata', params: { groupId } }" class="tab">{{ t('media.view.tabs.metadata') }}</router-link>
@@ -41,6 +42,11 @@ const isPaused = computed(() => {
   const state = stateStore.getGroupState(groupId);
   return state === MediaState.paused || state === MediaState.pausedList;
 });
+
+const downloadSubtitles = (): void => {
+  void mediaStore.downloadSubtitles(groupId);
+  void router.push(`/`);
+};
 
 const downloadItem = (): void => {
   const options = optionsStore.getOptions(groupId);

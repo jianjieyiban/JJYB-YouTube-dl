@@ -804,7 +804,7 @@
       },
       "autoStart": {
         "label": "Beim Anmelden starten",
-        "hint": "Open Video Downloader automatisch beim Anmelden starten."
+        "hint": "JJYB-YouTube-dl automatisch beim Anmelden starten."
       },
       "autoStartMinimised": {
         "label": {
@@ -1063,7 +1063,7 @@
   },
   "about": {
     "title": "Über",
-    "credit": "Mit ❤ erstellt von jely2002 & Mitwirkenden",
+    "credit": "Modifiziert von jianjieyiban; basiert auf jely2002/youtube-dl-gui und Mitwirkenden; AGPL-3.0-or-later",
     "poweredBy": "Unterstützt durch Open Source:",
     "viewLicenses": "Lizenzen anzeigen",
     "version": "Version: {version}",

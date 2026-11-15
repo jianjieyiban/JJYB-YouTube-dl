@@ -60,7 +60,7 @@ import { useTheme } from '../../composables/useTheme.ts';
 import { availableLocales, getDefaultLocale } from '../../i18n.ts';
 import { languageOptionsLookup, SubtitleLanguageOption } from '../../helpers/subtitles/languages.ts';
 
-const { t } = useI18n();
+const { t, locale: currentLocale } = useI18n();
 const settings = defineModel<Settings>({ required: true });
 
 const { systemTheme } = useTheme();
@@ -70,7 +70,12 @@ const languageOptions = () => {
   for (const locale of Object.keys(availableLocales)) {
     const language: SubtitleLanguageOption | undefined = languageOptionsLookup.get(locale);
     if (language) {
-      if (language.nativeName && language.nativeName !== language.englishName) {
+      if (currentLocale.value === 'zh-CN') {
+        options.push({
+          label: new Intl.DisplayNames(['zh-CN'], { type: 'language' }).of(locale) ?? language.nativeName,
+          value: language.code,
+        });
+      } else if (language.nativeName && language.nativeName !== language.englishName) {
         options.push({
           label: `${language.englishName} - ${language.nativeName}`,
           value: language.code,

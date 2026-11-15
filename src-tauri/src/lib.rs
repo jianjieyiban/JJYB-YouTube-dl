@@ -71,16 +71,20 @@ pub fn run() {
     .setup(|app| {
       let handle = app.handle();
 
-      let sentry_client = sentry::init((
-        "https://e5ff83f3c84f397db516955ec278c4c6@o762792.ingest.us.sentry.io/4510256640884736",
-        sentry::ClientOptions {
-          traces_sample_rate: 0.05,
-          sample_rate: 0.25,
-          release: sentry::release_name!(),
-          ..sentry::ClientOptions::default()
-        },
-      ));
-      handle.manage::<ClientInitGuard>(sentry_client);
+      if let Ok(dsn) = std::env::var("JJYB_SENTRY_DSN") {
+        if !dsn.trim().is_empty() {
+          let sentry_client = sentry::init((
+            dsn,
+            sentry::ClientOptions {
+              traces_sample_rate: 0.05,
+              sample_rate: 0.25,
+              release: sentry::release_name!(),
+              ..sentry::ClientOptions::default()
+            },
+          ));
+          handle.manage::<ClientInitGuard>(sentry_client);
+        }
+      }
 
       init_tracing();
 
@@ -177,6 +181,7 @@ pub fn run() {
       preferences_set,
       binaries_check,
       binaries_ensure,
+      updater_status,
       updater_check,
       updater_download,
       updater_install,

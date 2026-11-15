@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { UpdaterCheckPayload, UpdaterDownloadProgressPayload } from '../tauri/types/updater';
+import { UpdaterStatusPayload, UpdaterCheckPayload, UpdaterDownloadProgressPayload } from '../tauri/types/updater';
 import { useSettingsStore } from './settings';
 
 export const useUpdaterStore = defineStore('updater', () => {
@@ -13,18 +13,50 @@ export const useUpdaterStore = defineStore('updater', () => {
   const lastError = ref<string | undefined>();
   const settingsStore = useSettingsStore();
 
+  const configuration = ref<UpdaterStatusPayload>();
+
+  function clearPending() {
+    checkResult.value = undefined;
+    isNeedingRestart.value = false;
+    downloadProgress.value = { received: 0, total: 0 };
+  }
+
+  async function loadConfiguration() {
+    try {
+      configuration.value = await invoke<UpdaterStatusPayload>('updater_status');
+      if (!configuration.value.configured) clearPending();
+    } catch (error) {
+      configuration.value = undefined;
+      clearPending();
+      lastError.value = String(error);
+    }
+  }
+
   async function check() {
-    if (!settingsStore.settings.update.updateApp) return;
-    checkResult.value = await invoke<UpdaterCheckPayload>('updater_check');
+    clearPending();
+    lastError.value = undefined;
+    await loadConfiguration();
+    if (!configuration.value?.configured || !settingsStore.settings.update.updateApp) return;
+    try {
+      checkResult.value = await invoke<UpdaterCheckPayload>('updater_check');
+      isIgnored.value = false;
+    } catch (error) {
+      clearPending();
+      lastError.value = String(error);
+    }
   }
 
   async function download() {
+    isNeedingRestart.value = false;
+    lastError.value = undefined;
+    downloadProgress.value = { received: 0, total: 0 };
     try {
       isUpdating.value = true;
       await invoke('updater_download');
       isNeedingRestart.value = true;
     } catch (e) {
-      console.error(e);
+      clearPending();
+      lastError.value = String(e);
     } finally {
       isUpdating.value = false;
     }
@@ -35,7 +67,8 @@ export const useUpdaterStore = defineStore('updater', () => {
     try {
       await invoke('updater_install');
     } catch (e) {
-      console.error(e);
+      clearPending();
+      lastError.value = String(e);
     }
   }
 
@@ -50,6 +83,7 @@ export const useUpdaterStore = defineStore('updater', () => {
   function processUpdaterFinished() {
     isUpdating.value = false;
     isIgnored.value = true;
+    isNeedingRestart.value = false;
     downloadProgress.value = { received: 0, total: 0 };
   }
 
@@ -58,5 +92,5 @@ export const useUpdaterStore = defineStore('updater', () => {
     lastError.value = payload;
   }
 
-  return { checkResult, downloadProgress, isUpdating, isIgnored, isNeedingRestart, lastError, ignore, check, download, install, processUpdaterDownloadProgress, processUpdaterFinished, processUpdaterError };
+  return { configuration, loadConfiguration, checkResult, downloadProgress, isUpdating, isIgnored, isNeedingRestart, lastError, ignore, check, download, install, processUpdaterDownloadProgress, processUpdaterFinished, processUpdaterError };
 });
