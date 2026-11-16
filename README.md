@@ -30,7 +30,7 @@
 
 - 前端单元测试 152/152、Rust 测试 146/146、系统 Edge E2E 22/22；ESLint、类型检查、前端构建、Clippy 严格检查及 Windows Tauri `--no-bundle` 构建通过。
 - Edge 曾出现加载超时，最终按原测试、单 worker、无并行编译复跑通过；未修改用例或增加重试掩盖，先前根因未证实。
-- 保留 Stronghold 的两条第三方既有警告与 libsodium PDB 链接警告；全库 Rust 格式有历史差异，本轮修改文件检查通过。
+- 保留 Stronghold 的两条第三方既有警告与 libsodium PDB 链接警告。3.3.0 发布提交曾因 5 个 Rust 文件未按 rustfmt 格式化导致 CI 失败，现已统一格式；此修复不改变程序逻辑，既有 Release 二进制保持不变。
 - npm 官方审计生产依赖 0 漏洞；开发依赖仍有 33 项 moderate，无 high，不代表完整应用或外部工具无风险。
 - 真实 YouTube 已解析并选中中文翻译轨，但字幕下载遇到 HTTP 429，未取得 SRT，**真实站点全链路未验收**。不保证所有站点、账号、地区可用，不绕过平台验证或 TLS。
 - **应用自动更新禁用，签名升级链未验收；本次便携版手动更新。** 未提供未签名的 `latest.json` 冒充安全更新。程序未作 Windows Authenticode 签名，系统可能提示未知发布者。
