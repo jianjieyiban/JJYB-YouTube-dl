@@ -255,6 +255,7 @@ jobs:
         if: matrix.platform == 'windows-latest' || matrix.platform == 'windows-11-arm'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $releaseDir = "src-tauri/target/release"
           $layoutRoot = "portable-layout"
           $portableFolder = "jjyb-portable"
@@ -279,6 +280,17 @@ jobs:
           New-Item -ItemType Directory -Path "$layoutRoot/$portableFolder" -Force | Out-Null
           New-Item -ItemType File -Path "$layoutRoot/$portableFolder/$keepFileName" -Value "Do not remove this file or directory." -Force | Out-Null
           Copy-Item $exe.FullName -Destination "$layoutRoot/$exeName" -Force
+          Copy-Item -Path "msix-layout/JJYB-YouTube-dl/bin" -Destination "$layoutRoot/$portableFolder/bin" -Recurse -Force
+          Copy-Item -Path "LICENSE", "licenses", "README.md", "CONTRIBUTING.md", "docs" -Destination $layoutRoot -Recurse -Force
+          Copy-Item -Path "src-tauri/LICENSE-OpenCC-Apache-2.0", "src-tauri/NOTICE-OpenCC" -Destination $layoutRoot -Force
+
+          foreach ($requiredFile in @("$layoutRoot/$exeName", "$layoutRoot/$portableFolder/bin/yt-dlp.exe", "$layoutRoot/$portableFolder/bin/ffmpeg.exe")) {
+            if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
+              throw "Missing required portable file: $requiredFile"
+            }
+          }
+          & "$layoutRoot/$portableFolder/bin/yt-dlp.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "Portable yt-dlp --version failed with exit code $LASTEXITCODE" }
           
           Compress-Archive -Path "$layoutRoot/*" -DestinationPath $zipName -Force
       

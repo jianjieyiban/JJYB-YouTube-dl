@@ -15,6 +15,7 @@ on:
 
 jobs:
   update:
+    if: vars.JJYB_ENABLE_SIGNED_MANIFEST == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read

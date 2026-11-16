@@ -1,8 +1,8 @@
 # 参与 JJYB-YouTube-dl 开发
 
-本项目是 [Open Video Downloader / youtube-dl-gui](https://github.com/jely2002/youtube-dl-gui) 的衍生版，使用 Vue 3、TypeScript、Tauri 2 与 Rust。修改说明更新于 **2026-11-15**；保留上游作者与第三方许可，不将衍生修改表述为完全原创。
+本项目是 [Open Video Downloader / youtube-dl-gui](https://github.com/jely2002/youtube-dl-gui) 的衍生版，使用 Vue 3、TypeScript、Tauri 2 与 Rust。修改说明更新于 **2026-11-16**；保留上游作者与第三方许可，不将衍生修改表述为完全原创。
 
-自有仓库入口为 [jianjieyiban/JJYB-YouTube-dl](https://github.com/jianjieyiban/JJYB-YouTube-dl)。截至本次文档更新，仓库已创建但尚空、尚无 Release；本地文件不代表已推送。本指南不承诺上游分支策略、CI 或商店发布流程已经适用于本仓库。
+自有仓库入口为 [jianjieyiban/JJYB-YouTube-dl](https://github.com/jianjieyiban/JJYB-YouTube-dl)。本次版本为 3.3.0，发行范围为 Windows x64 便携版；资产与对应源码以自有仓库 Release 和版本标签为准。本指南不承诺上游分支策略、CI 或商店发布流程已经适用于本仓库。
 
 ## 本地环境
 
@@ -54,11 +54,13 @@ stronghold-runtime = { path = "vendor/stronghold-runtime" }
 
 产物通常位于 `src-tauri/target/release/bundle/`，具体以实际构建输出为准。Tauri 配置启用了更新产物生成，正式发布需要准备签名；缺少签名或平台打包工具不应通过跳过验签来“解决”。记录实际 Node、npm、Rust 版本、执行命令、通过项与失败项，不把前端构建成功等同完整桌面验收。
 
-### 本轮已报告的核验结果
+### 历史核验与本轮状态
+
+下述 146/132 项记录来自修复前，不能代替本轮验收。本轮修复后前端 152 项、Edge E2E 22 项、ESLint、类型检查和前端构建通过；最新 Rust 全套已通过 146 项。Windows Tauri `--no-bundle` 生产构建已成功，便携 exe 已替换并核对 SHA256，主界面、中文优先字幕页和更新禁用提示已完成原生复核，仍有 libsodium PDB 链接警告；Clippy（`--all-targets -- -D warnings`）已通过，第三方 Stronghold 的两条既有警告保留。本轮修改的 Rust 文件格式检查通过，全库格式检查仍有历史差异。真实 YouTube 字幕请求返回 HTTP 429，尚未取得 SRT。锁文件已将 brace-expansion 更新至 1.1.22，官方审计剩余 33 项中危、无高危；已用 D 盘 Node.js 24.22.3 / npm 11.19.1 从官方源完成 `npm ci`，重装后 152 项单元测试、ESLint、类型检查及前端构建通过，生产依赖复审为 0 漏洞；Edge E2E 重装后曾在页面加载阶段超时，独立探针未复现；原生增量构建结束后，以原测试、单 worker 复跑已 22/22 通过。未修改测试或增加重试掩盖失败，先前超时根因未证实。Windows/Linux Rust CI 的 Node 版本已统一为 24，以满足许可证工具的环境要求。
 
 核验环境为 Node.js 22.20.0 / npm 10.9.3；146 项前端单元测试、132 项 Rust 测试、22 项系统 Edge E2E、4 项本地真实媒体嵌入/取消验证、ESLint 与生产构建通过。Windows Tauri `--no-bundle` 构建成功，最终 exe 已交付并核对 SHA256；原生更新配置提示已验证。此次未生成安装器，仍有依赖 unused/dead_code 和 libsodium PDB 链接警告。npm 官方审计生产依赖为 0 漏洞；包含开发依赖仍有 34 项（33 moderate、1 high），不是全依赖清零，也不覆盖 Rust 或外部工具。
 
-本地交付目录为 `JJYB便携版-3.2.1`，运行组件沿用旧包的 6 个文件，不含配置或 Cookie，不承诺工具版本为最新。不要将组件复用表述为完成了最新版本升级或真实下载验收。
+3.3.0 便携包从白名单资源生成，复用原运行目录的工具而不复制个人数据；yt-dlp 为官方单文件版，其余组件沿用现有包，不承诺工具最新。禁止上传运行配置、Cookie、WebView 缓存及日志。源码对应版本标签必须包含 vendor 与许可。不要将组件复用表述为完成了真实下载验收。
 
 ## 代码与测试范围
 
@@ -81,7 +83,9 @@ stronghold-runtime = { path = "vendor/stronghold-runtime" }
 
 应用更新固定目标是自有仓库的 `releases/latest/download/latest.json`，不回退上游。当前 `src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey` 为空，应用更新被禁用；组件更新是独立链路。
 
-发布前应配置与发布私钥配对的有效 Tauri 公钥、生成带签名的各平台更新产物及匹配版本/架构的 `latest.json`。仅填非空字符串不代表密钥有效或更新链已验收。私钥和口令只能通过受保护的 CI Secrets 注入，不得提交、写入日志或打包。Tauri 更新签名不同于 Windows Authenticode 签名。
+签名工具清单 Pages 工作流默认跳过；准备好 release 分支、清单签名密钥及 Pages 后，才将仓库变量 `JJYB_ENABLE_SIGNED_MANIFEST` 设为 `true`。它与 Tauri 应用签名更新独立。
+
+发布应用自动更新前应配置与发布私钥配对的有效 Tauri 公钥、生成带签名的各平台更新产物及匹配版本/架构的 `latest.json`。仅填非空字符串不代表密钥有效或更新链已验收。私钥和口令只能通过受保护的 CI Secrets 注入，不得提交、写入日志或打包。Tauri 更新签名不同于 Windows Authenticode 签名。
 
 至少用两个真实签名 Release 验证旧版检查、下载、验签、安装和新版启动，并检查错误签名、网络失败与未配置状态。便携版按实际 Release 说明手动替换，不承诺自动原地升级。不要在验证前宣传发布流水线或在线升级可用。
 
