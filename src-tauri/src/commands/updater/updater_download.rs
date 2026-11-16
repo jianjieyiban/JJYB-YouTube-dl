@@ -30,7 +30,9 @@ pub async fn updater_download(app: AppHandle, store: State<'_, Mutex<UpdateStore
     s.clear();
     return Err(io::Error::other("未配置自有更新公钥").into());
   }
-  let update = s.update.clone()
+  let update = s
+    .update
+    .clone()
     .ok_or_else(|| io::Error::other("no update available"))?;
   let app_for_progress = app.clone();
   let app_for_error = app.clone();

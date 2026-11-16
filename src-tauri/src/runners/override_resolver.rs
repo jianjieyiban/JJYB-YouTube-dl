@@ -96,7 +96,11 @@ impl ApplyPatch<NetworkSettings> for NetworkOverrides {
 
 impl ApplyPatch<SubtitleSettings> for SubtitleOverrides {
   fn apply_to(&self, target: &mut SubtitleSettings) {
-    if self.chinese_priority.is_none() && (self.languages.is_some() || self.manual_languages.is_some() || self.auto_languages.is_some()) {
+    if self.chinese_priority.is_none()
+      && (self.languages.is_some()
+        || self.manual_languages.is_some()
+        || self.auto_languages.is_some())
+    {
       target.chinese_priority = false;
     }
     apply_copy_patch!(self, target, chinese_priority);
@@ -114,13 +118,23 @@ mod subtitle_policy_tests {
   #[test]
   fn explicit_language_selection_disables_implicit_chinese_policy() {
     let base = SubtitleSettings::default();
-    let patch = SubtitleOverrides { languages: Some(vec!["zh-Hant".into()]), ..Default::default() };
+    let patch = SubtitleOverrides {
+      languages: Some(vec!["zh-Hant".into()]),
+      ..Default::default()
+    };
     let resolved = resolve_with_patch(&base, Some(&patch));
     assert!(!resolved.chinese_priority);
     assert_eq!(resolved.languages, vec!["zh-Hant"]);
-    let patch = SubtitleOverrides { chinese_priority: Some(false), ..Default::default() };
+    let patch = SubtitleOverrides {
+      chinese_priority: Some(false),
+      ..Default::default()
+    };
     assert!(!resolve_with_patch(&base, Some(&patch)).chinese_priority);
-    let patch = SubtitleOverrides { chinese_priority: Some(true), languages: Some(vec!["en".into()]), ..Default::default() };
+    let patch = SubtitleOverrides {
+      chinese_priority: Some(true),
+      languages: Some(vec!["en".into()]),
+      ..Default::default()
+    };
     assert!(resolve_with_patch(&base, Some(&patch)).chinese_priority);
   }
 }
