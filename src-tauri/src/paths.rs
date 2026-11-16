@@ -8,9 +8,8 @@ const SNAP_USER_COMMON_ENV: &str = "SNAP_USER_COMMON";
 
 #[derive(Clone)]
 pub struct PathsManager {
-  is_microsoft_store_app: bool,
+  #[cfg(windows)]
   is_portable_app: bool,
-  is_snap_app: bool,
   app_dir: PathBuf,
   bin_dir: PathBuf,
 }
@@ -54,24 +53,16 @@ impl PathsManager {
     }
 
     Self {
-      is_microsoft_store_app,
+      #[cfg(windows)]
       is_portable_app,
-      is_snap_app,
       app_dir,
       bin_dir,
     }
   }
 
-  pub fn is_microsoft_store_app(&self) -> bool {
-    self.is_microsoft_store_app
-  }
-
+  #[cfg(windows)]
   pub fn is_portable_app(&self) -> bool {
     self.is_portable_app
-  }
-
-  pub fn is_snap_app(&self) -> bool {
-    self.is_snap_app
   }
 
   pub fn app_dir(&self) -> &PathBuf {

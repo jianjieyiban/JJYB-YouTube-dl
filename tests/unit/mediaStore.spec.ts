@@ -130,6 +130,122 @@ describe('media store', () => {
     expect(optionsStore.getOptions(group.id)).toEqual({ trackType: TrackType.both, height: 720 });
   });
 
+  it.each(['single', 'all'])('resumes subtitle-only execution via %s without changing saved AV options', async (mode) => {
+    const payloads: unknown[] = [];
+    installTauriMock({ media_download: (_cmd, args) => {
+      payloads.push(args);
+      return 'ok';
+    } });
+    const group = createPlaylistGroup('resume-subtitles', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    const optionsStore = useMediaOptionsStore();
+    optionsStore.setOptions(group.id, { trackType: TrackType.both, height: 720 });
+    optionsStore.setEncodings(group.id, { audio: 'aac' });
+    const mediaStore = useMediaStore();
+    await mediaStore.downloadSubtitles(group.id);
+    await mediaStore.pauseGroup(group.id);
+    optionsStore.setEncodings(group.id, { audio: 'opus' });
+    if (mode === 'single') await mediaStore.resumeGroup(group.id);
+    else mediaStore.resumeAllGroups();
+    await flushAsync();
+    expect(payloads).toHaveLength(2);
+    expect(payloads[1]).toMatchObject({ items: [{ subtitlesOnly: true, format: { audioEncoding: 'aac', height: 720 } }] });
+    expect(optionsStore.getOptions(group.id)).toEqual({ trackType: TrackType.both, height: 720 });
+  });
+
+  it.each([true, false])('retries a failed execution with its resolved mode (%s) and cloned overrides before metadata arrives', async (subtitlesOnly) => {
+    const group = createPlaylistGroup('retry-mode', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    const optionsStore = useMediaOptionsStore();
+    optionsStore.setOptions(group.id, { trackType: TrackType.both, height: 720 });
+    optionsStore.setEncodings(group.id, { audio: 'aac' });
+    optionsStore.setOverrides(group.id, { subtitles: { languages: ['ja'], embedSubtitles: true }, network: { proxy: 'http://old' } });
+    const payloads: unknown[] = [];
+    const mediaStore = useMediaStore();
+    installTauriMock({
+      media_download: (_cmd, args) => {
+        payloads.push(args);
+        return 'ok';
+      },
+      media_info: (_cmd, args) => {
+        const { groupId, id, overrides } = args as { groupId: string; id: string; overrides: unknown };
+        expect(overrides).toEqual({ subtitles: { languages: ['ja'], embedSubtitles: true }, network: { proxy: 'http://old' } });
+        optionsStore.getOverrides(group.id)!.subtitles!.languages!.push('en');
+        mediaStore.processMediaAddPayload({ groupId, total: 1, item: { ...group.items.leader, id } });
+        return groupId;
+      },
+    });
+    if (subtitlesOnly) await mediaStore.downloadSubtitles(group.id);
+    else await mediaStore.downloadGroup(group.id, optionsStore.getOptions(group.id)!);
+    useMediaStateStore().setGroupState(group.id, MediaState.error);
+    optionsStore.setEncodings(group.id, { audio: 'opus' });
+    await mediaStore.retryGroup(group.id);
+    expect(payloads).toHaveLength(2);
+    expect(payloads[1]).toMatchObject({ items: [{
+      subtitlesOnly,
+      format: { height: 720, audioEncoding: 'aac' },
+      overrides: { subtitles: { languages: ['ja'], embedSubtitles: !subtitlesOnly }, network: { proxy: 'http://old' } },
+    }] });
+    expect(optionsStore.getOptions(group.id)?.subtitlesOnly).toBeUndefined();
+  });
+
+  it('retries every ready child after the original URL expands and splits', async () => {
+    const group = createPlaylistGroup('retry-playlist', 2);
+    group.items.child = { ...group.items.leader, id: 'child', entries: undefined, isLeader: false, url: 'https://example.com/playlist?v=1' };
+    useMediaGroupStore().createGroup(group);
+    useSettingsStore().settings.performance.splitPlaylistThreshold = 10;
+    useMediaOptionsStore().setOverrides(group.id, { subtitles: { languages: ['ja'] } });
+    const mediaStore = useMediaStore();
+    const downloads: unknown[] = [];
+    installTauriMock({
+      media_download: (_cmd, args) => {
+        downloads.push(args);
+        return 'ok';
+      },
+      media_info: (_cmd, args) => {
+        const { groupId, id } = args as { groupId: string; id: string };
+        setTimeout(() => mediaStore.processMediaAddPayload({ groupId, total: 2, item: { ...group.items.leader, id } }), 0);
+        return groupId;
+      },
+      media_playlist_expand: (_cmd, args) => {
+        const { groupId } = args as { groupId: string };
+        for (const [index, entry] of group.entries!.entries()) {
+          mediaStore.processMediaAddPayload({ groupId, total: 2, item: { ...group.items.child, id: `retry-child-${index}`, url: entry.videoUrl } });
+        }
+        return groupId;
+      },
+    });
+    await mediaStore.downloadSubtitles(group.id);
+    await mediaStore.retryGroup(group.id);
+    expect(downloads).toHaveLength(3);
+    for (const payload of downloads.slice(1)) {
+      expect(payload).toMatchObject({ items: [{ subtitlesOnly: true, overrides: { subtitles: { languages: ['ja'], enabled: true, embedSubtitles: false } } }] });
+    }
+  });
+
+  it('clears execution snapshots when a group is deleted', async () => {
+    const payloads: unknown[] = [];
+    installTauriMock({ media_download: (_cmd, args) => {
+      payloads.push(args);
+      return 'ok';
+    } });
+    const group = createPlaylistGroup('deleted-snapshot', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    const mediaStore = useMediaStore();
+    useMediaGroupStore().createGroup(group);
+    await mediaStore.downloadSubtitles(group.id);
+    mediaStore.deleteGroup(group.id);
+    useMediaGroupStore().createGroup(group);
+    useMediaOptionsStore().setOptions(group.id, { trackType: TrackType.both });
+    await mediaStore.resumeGroup(group.id);
+    expect(payloads[1]).toMatchObject({ items: [{ subtitlesOnly: false }] });
+  });
+
   it('applies input filter overrides when dispatching media info fetches', async () => {
     const settingsStore = useSettingsStore();
     Object.assign(settingsStore.settings, structuredClone(defaultSettings));

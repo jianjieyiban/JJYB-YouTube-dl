@@ -41,11 +41,19 @@ pub async fn run_ytdlp_download(
   app: AppHandle,
   entry: DownloadEntry,
 ) -> Result<(), YtdlpDownloadError> {
-  let manifest = tempfile::NamedTempFile::new().map_err(|e| YtdlpDownloadError::InvalidArguments(e.to_string()))?;
-  let media_manifest = tempfile::NamedTempFile::new().map_err(|e| YtdlpDownloadError::InvalidArguments(e.to_string()))?;
+  let manifest = tempfile::NamedTempFile::new()
+    .map_err(|e| YtdlpDownloadError::InvalidArguments(e.to_string()))?;
+  let media_manifest = tempfile::NamedTempFile::new()
+    .map_err(|e| YtdlpDownloadError::InvalidArguments(e.to_string()))?;
   let config = app.state::<crate::SharedConfig>().load();
-  let subtitle_settings: crate::state::config_models::SubtitleSettings = crate::runners::override_resolver::resolve_with_patch(
-    &config.subtitles, entry.overrides.as_ref().and_then(|value| value.subtitles.as_ref()));
+  let subtitle_settings: crate::state::config_models::SubtitleSettings =
+    crate::runners::override_resolver::resolve_with_patch(
+      &config.subtitles,
+      entry
+        .overrides
+        .as_ref()
+        .and_then(|value| value.subtitles.as_ref()),
+    );
   let runner = YtdlpRunner::new(&app)
     .with_progress_args()
     .with_network_args(entry.overrides.as_ref())
@@ -55,11 +63,16 @@ pub async fn run_ytdlp_download(
   let runner = if entry.subtitles_only {
     runner.with_args(["--skip-download"])
   } else {
-    runner.with_sponsorblock_args(entry.overrides.as_ref())
+    runner
+      .with_sponsorblock_args(entry.overrides.as_ref())
       .with_format_args(&entry.format, entry.overrides.as_ref())
       .with_input_args(entry.overrides.as_ref())
   };
-  let output_args = match if entry.subtitles_only { Ok(Vec::new()) } else { runner.output_args(&entry.format, entry.overrides.as_ref()) } {
+  let output_args = match if entry.subtitles_only {
+    Ok(Vec::new())
+  } else {
+    runner.output_args(&entry.format, entry.overrides.as_ref())
+  } {
     Ok(args) => args,
     Err(err) => {
       emit_internal_fatal(
@@ -78,7 +91,19 @@ pub async fn run_ytdlp_download(
       &entry.template_context,
       entry.overrides.as_ref(),
     )
-    .with_args(["--no-simulate".to_string(), "--print-to-file".into(), if entry.subtitles_only { "before_dl:%(requested_subtitles)j".into() } else { "after_move:%(requested_subtitles)j".into() }, manifest.path().to_string_lossy().into_owned(), "--print-to-file".into(), "after_move:%(filepath)j".into(), media_manifest.path().to_string_lossy().into_owned()])
+    .with_args([
+      "--no-simulate".to_string(),
+      "--print-to-file".into(),
+      if entry.subtitles_only {
+        "before_dl:%(requested_subtitles)j".into()
+      } else {
+        "after_move:%(requested_subtitles)j".into()
+      },
+      manifest.path().to_string_lossy().into_owned(),
+      "--print-to-file".into(),
+      "after_move:%(filepath)j".into(),
+      media_manifest.path().to_string_lossy().into_owned(),
+    ])
     .with_url(&entry.url);
 
   static RULES_JSON: &str = include_str!("../diagnostic_rules.json");
@@ -155,7 +180,7 @@ pub async fn run_ytdlp_download(
           YtdlpCommandEvent::Terminated(term) => {
             if term.code == Some(0) {
               let explicit_tracks = entry.overrides.as_ref().and_then(|value| value.subtitles.as_ref()).is_some_and(|value| value.manual_languages.is_some() || value.auto_languages.is_some());
-              let result = crate::runners::subtitles::finish_subtitles(manifest.path(), subtitle_settings.chinese_priority && !explicit_tracks, entry.subtitles_only || subtitle_settings.enabled);
+              let result = finish_download_subtitles(manifest.path(), &subtitle_settings, explicit_tracks, entry.subtitles_only);
               let subtitles = match result {
                 Ok(files) => files,
                 Err(err) => {
@@ -220,8 +245,33 @@ pub async fn run_ytdlp_download(
   Err(YtdlpDownloadError::EventStreamEnded)
 }
 
-async fn embed_subtitles(app: &AppHandle, manifest: &std::path::Path, subtitles: &[std::path::PathBuf], cancel: &mut watch::Receiver<bool>) -> Result<(), String> {
-  let binary = app.state::<crate::paths::PathsManager>().bin_dir().join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" });
+fn finish_download_subtitles(
+  manifest: &std::path::Path,
+  settings: &crate::state::config_models::SubtitleSettings,
+  explicit_tracks: bool,
+  subtitles_only: bool,
+) -> Result<Vec<std::path::PathBuf>, String> {
+  crate::runners::subtitles::finish_subtitles(
+    manifest,
+    settings.chinese_priority && !explicit_tracks,
+    subtitles_only,
+  )
+}
+
+async fn embed_subtitles(
+  app: &AppHandle,
+  manifest: &std::path::Path,
+  subtitles: &[std::path::PathBuf],
+  cancel: &mut watch::Receiver<bool>,
+) -> Result<(), String> {
+  let binary = app
+    .state::<crate::paths::PathsManager>()
+    .bin_dir()
+    .join(if cfg!(windows) {
+      "ffmpeg.exe"
+    } else {
+      "ffmpeg"
+    });
   super::subtitle_embed::embed_with_binary(&binary, manifest, subtitles, cancel).await
 }
 
@@ -308,4 +358,56 @@ fn parse_clock_secs(value: &str) -> Option<f64> {
   }
 
   Some(total)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::finish_download_subtitles;
+  use crate::state::config_models::SubtitleSettings;
+
+  #[test]
+  fn subtitle_regression_av_without_target_subtitles_completes() {
+    let manifest = tempfile::NamedTempFile::new().unwrap();
+    let settings = SubtitleSettings::default();
+    assert!(settings.enabled);
+    for data in ["", "null\n", "{}\n"] {
+      std::fs::write(manifest.path(), data).unwrap();
+      assert_eq!(
+        finish_download_subtitles(manifest.path(), &settings, false, false).unwrap(),
+        Vec::<std::path::PathBuf>::new()
+      );
+    }
+  }
+
+  #[test]
+  fn subtitle_regression_subtitle_only_requires_output() {
+    let manifest = tempfile::NamedTempFile::new().unwrap();
+    for enabled in [false, true] {
+      let settings = SubtitleSettings {
+        enabled,
+        ..Default::default()
+      };
+      assert_eq!(
+        finish_download_subtitles(manifest.path(), &settings, false, true).unwrap_err(),
+        "No subtitle tracks were downloaded"
+      );
+    }
+  }
+
+  #[test]
+  fn subtitle_regression_av_invalid_existing_output_still_fails() {
+    let directory = tempfile::tempdir().unwrap();
+    let subtitle = directory.path().join("video.zh-Hant.srt");
+    let manifest = directory.path().join("manifest.jsonl");
+    std::fs::write(&subtitle, "invalid SRT").unwrap();
+    std::fs::write(
+      &manifest,
+      serde_json::json!({"zh-Hant": {"filepath": subtitle}}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+      finish_download_subtitles(&manifest, &SubtitleSettings::default(), false, false).unwrap_err(),
+      "Subtitle output is empty or invalid SRT"
+    );
+  }
 }

@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { toRaw } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { v4 as uuidv4 } from 'uuid';
 import { MediaState, useMediaStateStore } from './state';
@@ -43,6 +44,7 @@ export const useMediaStore = defineStore('media', () => {
   const settingsStore = useSettingsStore();
   const watchClipboardStore = useWatchClipboardStore();
   const pendingReadyGroups = new Map<string, PendingReadyGroup>();
+  const executionOptions = new Map<string, DownloadOptions>();
 
   function resolvePendingReadyGroup(groupId: string, resolvedIds: string[]) {
     const pending = pendingReadyGroups.get(groupId);
@@ -199,6 +201,7 @@ export const useMediaStore = defineStore('media', () => {
     url: string,
     fromShortcut: boolean = false,
     skipPlaylistSelection: boolean = false,
+    overrides?: DownloadOverrides,
   ) {
     const id = uuidv4();
     const groupId = uuidv4();
@@ -236,7 +239,9 @@ export const useMediaStore = defineStore('media', () => {
     groupStore.createGroup(newGroup);
 
     const inputFiltersOverride = settingsToInputFilterOverride(settingsStore.settings);
-    if (inputFiltersOverride) {
+    if (overrides) {
+      optionsStore.setOverrides(groupId, cloneDownloadOverrides(overrides)!);
+    } else if (inputFiltersOverride) {
       optionsStore.setOverrides(groupId, { inputFilters: inputFiltersOverride });
     }
 
@@ -322,6 +327,7 @@ export const useMediaStore = defineStore('media', () => {
   async function downloadGroup(
     groupId: string,
     options: DownloadOptions,
+    useResolvedOptions: boolean = false,
   ) {
     watchClipboardStore.disable();
     const group = groupStore.findGroupById(groupId);
@@ -336,14 +342,17 @@ export const useMediaStore = defineStore('media', () => {
       ? { ...existingOverrides, subtitles: { ...existingOverrides?.subtitles, enabled: true, embedSubtitles: false } }
       : existingOverrides;
     const resolvedOptions: DownloadOptions = {
-      ...options,
-      audioEncoding: encodings?.audio,
-      videoEncoding: encodings?.video,
-      audioTrack: tracks?.audio,
-      videoTrack: tracks?.video,
+      ...structuredClone(toRaw(options)),
+      ...(!useResolvedOptions && {
+        audioEncoding: encodings?.audio,
+        videoEncoding: encodings?.video,
+        audioTrack: tracks?.audio,
+        videoTrack: tracks?.video,
+      }),
     };
 
     if (itemsWithoutLeader.length === 0) return;
+    executionOptions.set(groupId, resolvedOptions);
 
     const newState = group.isCombined ? MediaState.downloadingList : MediaState.downloading;
     items
@@ -441,13 +450,23 @@ export const useMediaStore = defineStore('media', () => {
     for (const groupId of groupStore.groupOrder) {
       const state = stateStore.getGroupState(groupId);
       if (state !== MediaState.paused && state !== MediaState.pausedList) continue;
-      const options = optionsStore.getOptions(groupId);
-      if (!options) {
-        console.warn(`No options found for group: ${groupId}, cannot resume.`);
-        continue;
-      }
-      void downloadGroup(groupId, options);
+      void resumeGroup(groupId);
     }
+  }
+
+  async function resumeGroup(groupId: string) {
+    const options = executionOptions.get(groupId);
+    await downloadGroup(groupId, options ?? getDownloadOptions(groupId), !!options);
+  }
+
+  async function retryGroup(groupId: string) {
+    const group = groupStore.findGroupById(groupId);
+    const options = executionOptions.get(groupId);
+    const overrides = cloneDownloadOverrides(optionsStore.getOverrides(groupId)) ?? {};
+    const nextGroupId = await dispatchMediaInfoFetch(group.url, group.fromShortcut, !!options, overrides);
+    if (!options) return;
+    const readyGroupIds = await waitForGroupReady(nextGroupId);
+    await Promise.all(readyGroupIds.map(id => downloadGroup(id, options, true)));
   }
 
   function deleteGroup(id: string) {
@@ -461,6 +480,7 @@ export const useMediaStore = defineStore('media', () => {
     diagnosticsStore.removeDiagnostics(group.id);
     destinationStore.deleteDestinations(group.id);
     optionsStore.removeOptions(group.id);
+    executionOptions.delete(group.id);
     groupStore.cancelGroup(group.id);
     groupStore.deleteGroup(group.id);
   }
@@ -495,6 +515,8 @@ export const useMediaStore = defineStore('media', () => {
     pauseAllGroups,
     pauseGroup,
     resumeAllGroups,
+    resumeGroup,
+    retryGroup,
     deleteGroup,
     deleteAllGroups,
     deleteGroupsByState,

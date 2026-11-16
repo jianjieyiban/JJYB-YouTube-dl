@@ -1,12 +1,15 @@
 use ferrous_opencc::{config::BuiltinConfig, OpenCC};
 
-pub const OPENCC_LICENSE: &str = include_str!("../../LICENSE-OpenCC-Apache-2.0");
-pub const OPENCC_NOTICE: &str = include_str!("../../NOTICE-OpenCC");
 use serde_json::Value;
-use std::{io::Write, path::{Path, PathBuf}};
+use std::{
+  io::Write,
+  path::{Path, PathBuf},
+};
 
 pub fn simplify_srt(text: &str, converter: &OpenCC) -> Result<String, String> {
-  if !text.contains(" --> ") { return Err("Subtitle output is not valid SRT".into()); }
+  if !text.contains(" --> ") {
+    return Err("Subtitle output is not valid SRT".into());
+  }
   let mut result = String::new();
   for line in text.split_inclusive('\n') {
     if line.trim().is_empty() || line.trim().parse::<u64>().is_ok() || line.contains(" --> ") {
@@ -21,32 +24,54 @@ pub fn simplify_srt(text: &str, converter: &OpenCC) -> Result<String, String> {
         body.clear();
         tag = true;
       }
-      if tag { result.push(ch); } else { body.push(ch); }
-      if ch == '>' || ch == '}' { tag = false; }
+      if tag {
+        result.push(ch);
+      } else {
+        body.push(ch);
+      }
+      if ch == '>' || ch == '}' {
+        tag = false;
+      }
     }
     result.push_str(&converter.convert(&body));
   }
   Ok(result)
 }
 
-pub fn finish_subtitles(manifest: &Path, simplify: bool, required: bool) -> Result<Vec<PathBuf>, String> {
+pub fn finish_subtitles(
+  manifest: &Path,
+  simplify: bool,
+  required: bool,
+) -> Result<Vec<PathBuf>, String> {
   let data = std::fs::read_to_string(manifest).map_err(|e| e.to_string())?;
   let converter = OpenCC::from_config(BuiltinConfig::T2s).map_err(|e| e.to_string())?;
   let mut files = Vec::new();
   for line in data.lines().filter(|line| !line.trim().is_empty()) {
-    let tracks: Value = serde_json::from_str(line).map_err(|e| format!("Invalid subtitle artifact manifest: {e}"))?;
+    let tracks: Value =
+      serde_json::from_str(line).map_err(|e| format!("Invalid subtitle artifact manifest: {e}"))?;
     if let Some(tracks) = tracks.as_object() {
       for (language, track) in tracks {
-        let Some(path) = track.get("filepath").and_then(Value::as_str) else { continue; };
+        let Some(path) = track.get("filepath").and_then(Value::as_str) else {
+          continue;
+        };
         let path = PathBuf::from(path).with_extension("srt");
-        if files.contains(&path) { continue; }
-        let text = std::fs::read_to_string(&path).map_err(|e| format!("Missing subtitle output {}: {e}", path.display()))?;
-        if text.trim().is_empty() || !text.contains(" --> ") { return Err("Subtitle output is empty or invalid SRT".into()); }
+        if files.contains(&path) {
+          continue;
+        }
+        let text = std::fs::read_to_string(&path)
+          .map_err(|e| format!("Missing subtitle output {}: {e}", path.display()))?;
+        if text.trim().is_empty() || !text.contains(" --> ") {
+          return Err("Subtitle output is empty or invalid SRT".into());
+        }
         let language = language.to_ascii_lowercase();
         if simplify && (language == "zh" || language.starts_with("zh-")) {
           let converted = simplify_srt(&text, &converter)?;
-          let mut temporary = tempfile::NamedTempFile::new_in(path.parent().ok_or("Subtitle path has no parent")?).map_err(|e| e.to_string())?;
-          temporary.write_all(converted.as_bytes()).map_err(|e| e.to_string())?;
+          let mut temporary =
+            tempfile::NamedTempFile::new_in(path.parent().ok_or("Subtitle path has no parent")?)
+              .map_err(|e| e.to_string())?;
+          temporary
+            .write_all(converted.as_bytes())
+            .map_err(|e| e.to_string())?;
           temporary.as_file().sync_all().map_err(|e| e.to_string())?;
           temporary.persist(&path).map_err(|e| e.to_string())?;
         }
@@ -54,7 +79,9 @@ pub fn finish_subtitles(manifest: &Path, simplify: bool, required: bool) -> Resu
       }
     }
   }
-  if required && files.is_empty() { return Err("No subtitle tracks were downloaded".into()); }
+  if required && files.is_empty() {
+    return Err("No subtitle tracks were downloaded".into());
+  }
   Ok(files)
 }
 
@@ -64,7 +91,14 @@ mod tests {
   #[test]
   fn conversion_preserves_timing_tags_and_line_endings() {
     let converter = OpenCC::from_config(BuiltinConfig::T2s).unwrap();
-    assert_eq!(simplify_srt("1\r\n00:00:01,000 --> 00:00:02,000\r\n<b title=\"繁體\">繁體字幕</b>\r\n", &converter).unwrap(), "1\r\n00:00:01,000 --> 00:00:02,000\r\n<b title=\"繁體\">繁体字幕</b>\r\n");
+    assert_eq!(
+      simplify_srt(
+        "1\r\n00:00:01,000 --> 00:00:02,000\r\n<b title=\"繁體\">繁體字幕</b>\r\n",
+        &converter
+      )
+      .unwrap(),
+      "1\r\n00:00:01,000 --> 00:00:02,000\r\n<b title=\"繁體\">繁体字幕</b>\r\n"
+    );
   }
   #[test]
   fn tracked_artifact_is_converted_without_touching_other_files() {
@@ -75,9 +109,19 @@ mod tests {
     let original = "1\r\n00:00:01,000 --> 00:00:02,000\r\n<b>繁體字幕</b>\r\n";
     std::fs::write(&subtitle, original).unwrap();
     std::fs::write(&unrelated, original).unwrap();
-    std::fs::write(&manifest, serde_json::json!({"zh-Hant": {"filepath": subtitle}}).to_string()).unwrap();
-    assert_eq!(finish_subtitles(&manifest, true, true).unwrap(), vec![subtitle.clone()]);
-    assert_eq!(std::fs::read_to_string(&subtitle).unwrap(), original.replace("繁體", "繁体"));
+    std::fs::write(
+      &manifest,
+      serde_json::json!({"zh-Hant": {"filepath": subtitle}}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+      finish_subtitles(&manifest, true, true).unwrap(),
+      vec![subtitle.clone()]
+    );
+    assert_eq!(
+      std::fs::read_to_string(&subtitle).unwrap(),
+      original.replace("繁體", "繁体")
+    );
     assert_eq!(std::fs::read_to_string(&unrelated).unwrap(), original);
     std::fs::write(&subtitle, original).unwrap();
     finish_subtitles(&manifest, false, true).unwrap();

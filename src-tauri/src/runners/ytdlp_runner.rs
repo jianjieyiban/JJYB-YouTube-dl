@@ -502,7 +502,11 @@ fn build_subtitle_args(
 
   let mut args = vec!["--write-subs".into()];
 
-  args.extend(["--no-embed-subs".into(), "--convert-subs".into(), "srt".into()]);
+  args.extend([
+    "--no-embed-subs".into(),
+    "--convert-subs".into(),
+    "srt".into(),
+  ]);
 
   if resolution.include_auto_generated {
     args.push("--write-auto-subs".into());
@@ -513,9 +517,20 @@ fn build_subtitle_args(
   args.push(formats.join("/"));
 
   args.push("--sub-langs".into());
-  args.push(resolution.languages.iter().map(|id| {
-    if id == "all" { "all".to_string() } else { format!("^{}$", regex::escape(id)) }
-  }).collect::<Vec<_>>().join(","));
+  args.push(
+    resolution
+      .languages
+      .iter()
+      .map(|id| {
+        if id == "all" {
+          "all".to_string()
+        } else {
+          format!("^{}$", regex::escape(id))
+        }
+      })
+      .collect::<Vec<_>>()
+      .join(","),
+  );
 
   Some(args)
 }
@@ -657,7 +672,10 @@ fn resolve_subtitle_request(
   subtitle_inventory: Option<&SubtitleInventory>,
 ) -> Option<ResolvedSubtitleRequest> {
   let inventory = subtitle_inventory?;
-  if settings.chinese_priority && !overrides.is_some_and(|value| value.manual_languages.is_some() || value.auto_languages.is_some()) {
+  if settings.chinese_priority
+    && !overrides
+      .is_some_and(|value| value.manual_languages.is_some() || value.auto_languages.is_some())
+  {
     return resolve_chinese_priority(settings, inventory);
   }
   let manual = inventory.manual_languages.clone();
@@ -674,7 +692,7 @@ fn resolve_subtitle_request(
       );
       let auto_languages = resolve_auto_override_languages(
         overrides.auto_languages.as_deref().unwrap_or(&[]),
-        &preferred_automatic,
+        &automatic,
       );
       let languages = available_subtitle_languages(&manual_languages, &auto_languages);
       if languages.is_empty() {
@@ -729,70 +747,110 @@ fn resolve_subtitle_request(
   }
 }
 
-fn resolve_chinese_priority(settings: &SubtitleSettings, inventory: &SubtitleInventory) -> Option<ResolvedSubtitleRequest> {
+fn resolve_chinese_priority(
+  settings: &SubtitleSettings,
+  inventory: &SubtitleInventory,
+) -> Option<ResolvedSubtitleRequest> {
   let mut languages = Vec::new();
   let mut include_auto_generated = false;
   let manual = &inventory.manual_languages;
   let automatic = &inventory.auto_languages;
   let has_orig = automatic.iter().any(|id| id.ends_with("-orig"));
-  let requested_languages = std::iter::once("zh-Hans".to_string()).chain(settings.languages.iter().filter(|id| !subtitle_language_base(id).starts_with("zh")).cloned());
+  let requested_languages = std::iter::once("zh-Hans".to_string()).chain(
+    settings
+      .languages
+      .iter()
+      .filter(|id| !subtitle_language_base(id).starts_with("zh"))
+      .cloned(),
+  );
   for requested in requested_languages {
     let base = subtitle_language_base(requested.trim());
     let chinese = base == "zh" || base.starts_with("zh-");
     let matches = |id: &str, traditional: bool| {
       let id = subtitle_language_base(id);
       if chinese {
-        if traditional { matches!(id.as_str(), "zh-hant" | "zh-tw" | "zh-hk" | "zh-mo") }
-        else { matches!(id.as_str(), "zh" | "zh-hans" | "zh-cn" | "zh-sg") }
-      } else { base == "all" || id == base }
+        if traditional {
+          matches!(id.as_str(), "zh-hant" | "zh-tw" | "zh-hk" | "zh-mo")
+        } else {
+          matches!(id.as_str(), "zh" | "zh-hans" | "zh-cn" | "zh-sg")
+        }
+      } else {
+        base == "all" || id == base
+      }
     };
     let mut selected = None;
     for traditional in [false, true] {
-      if traditional && !chinese { break; }
+      if traditional && !chinese {
+        break;
+      }
       if let Some(id) = manual.iter().find(|id| matches(id, traditional)) {
         selected = Some((id.clone(), false));
         break;
       }
       if chinese || settings.include_auto_generated {
-        if let Some(id) = automatic.iter().find(|id| matches(id, traditional) && (!has_orig || id.ends_with("-orig"))) {
+        if let Some(id) = automatic
+          .iter()
+          .find(|id| matches(id, traditional) && (!has_orig || id.ends_with("-orig")))
+        {
           selected = Some((id.clone(), true));
           break;
         }
       }
     }
     if selected.is_none() && (chinese || settings.include_auto_generated) {
-      selected = automatic.iter().find(|id| matches(id, false)).map(|id| (id.clone(), true));
+      selected = automatic
+        .iter()
+        .find(|id| matches(id, false))
+        .map(|id| (id.clone(), true));
+      if selected.is_none() && chinese {
+        for targets in [
+          &["zh-hans", "zh-cn", "zh-sg"][..],
+          &["zh-hant", "zh-tw", "zh-hk", "zh-mo"][..],
+        ] {
+          if let Some(id) = automatic.iter().find(|id| {
+            let normalized = id.to_ascii_lowercase();
+            targets
+              .iter()
+              .any(|target| normalized.starts_with(&format!("{target}-")))
+          }) {
+            selected = Some((id.clone(), true));
+            break;
+          }
+        }
+      }
     }
     if let Some((id, automatic)) = selected {
       include_auto_generated |= automatic;
-      if !languages.contains(&id) { languages.push(id); }
+      if !languages.contains(&id) {
+        languages.push(id);
+      }
     }
   }
-  (!languages.is_empty()).then_some(ResolvedSubtitleRequest { languages, include_auto_generated })
+  (!languages.is_empty()).then_some(ResolvedSubtitleRequest {
+    languages,
+    include_auto_generated,
+  })
 }
 
 fn resolve_manual_override_languages(requested: &[String], available: &[String]) -> Vec<String> {
-  let requested = sanitize_subtitle_languages(requested);
+  let requested = sanitize_vec(requested);
   if requested.iter().any(|language| language == "all") {
     return available.to_vec();
   }
 
-  requested.iter().filter_map(|language| available.iter().find(|id| subtitle_language_base(id) == subtitle_language_base(language)).cloned()).collect()
+  requested
+    .iter()
+    .filter_map(|language| {
+      available
+        .iter()
+        .find(|id| id.eq_ignore_ascii_case(language))
+        .cloned()
+    })
+    .collect()
 }
 
-fn resolve_auto_override_languages(
-  requested: &[String],
-  preferred_automatic: &[AutoLanguagePreference],
-) -> Vec<String> {
-  let requested = sanitize_subtitle_languages(requested);
-  if requested.iter().any(|language| language == "all") {
-    return preferred_automatic
-      .iter()
-      .map(|language| language.request.clone())
-      .collect();
-  }
-
-  resolve_auto_subtitle_languages(&requested, preferred_automatic)
+fn resolve_auto_override_languages(requested: &[String], automatic: &[String]) -> Vec<String> {
+  resolve_manual_override_languages(requested, automatic)
 }
 
 fn available_subtitle_languages(manual: &[String], automatic: &[String]) -> Vec<String> {
@@ -900,21 +958,163 @@ mod tests {
   #[test]
   fn chinese_priority_falls_back_to_traditional_and_keeps_ids() {
     let settings = SubtitleSettings::default();
-    let args = build_subtitle_args(&settings, None, Some(&inventory(&["zh-Hant"], &["en-orig", "zh-Hans"]))).expect("Chinese subtitle");
+    let args = build_subtitle_args(
+      &settings,
+      None,
+      Some(&inventory(&["zh-Hant"], &["en-orig", "zh-Hans"])),
+    )
+    .expect("Chinese subtitle");
     assert_eq!(args.last().unwrap(), r"^zh\-Hant$");
-    assert!(args.windows(2).any(|pair| pair == ["--convert-subs", "srt"]));
+    assert!(args
+      .windows(2)
+      .any(|pair| pair == ["--convert-subs", "srt"]));
     assert!(!args.iter().any(|arg| arg == "--embed-subs"));
   }
 
   #[test]
+  fn chinese_priority_accepts_source_suffixed_translation() {
+    let args = build_subtitle_args(
+      &SubtitleSettings::default(),
+      None,
+      Some(&inventory(&["en"], &["en", "zh-Hans-en", "zh-Hant-en"])),
+    )
+    .expect("translated Chinese subtitle");
+    assert_eq!(args.last().unwrap(), r"^zh\-Hans\-en$");
+  }
+
+  #[test]
+  fn chinese_priority_prefers_existing_traditional_over_suffixed_translation() {
+    let args = build_subtitle_args(
+      &SubtitleSettings::default(),
+      None,
+      Some(&inventory(&["zh-Hant"], &["zh-Hans-en"])),
+    )
+    .unwrap();
+    assert_eq!(args.last().unwrap(), r"^zh\-Hant$");
+  }
+
+  #[test]
+  fn chinese_priority_accepts_traditional_source_suffixed_translation() {
+    let args = build_subtitle_args(
+      &SubtitleSettings::default(),
+      None,
+      Some(&inventory(&[], &["zh-Hant-en"])),
+    )
+    .unwrap();
+    assert_eq!(args.last().unwrap(), r"^zh\-Hant\-en$");
+  }
+
+  #[test]
   fn chinese_priority_keeps_translation_fallback() {
-    let args = build_subtitle_args(&SubtitleSettings::default(), None, Some(&inventory(&[], &["en-orig", "zh-Hans"]))).expect("translation");
+    let args = build_subtitle_args(
+      &SubtitleSettings::default(),
+      None,
+      Some(&inventory(&[], &["en-orig", "zh-Hans"])),
+    )
+    .expect("translation");
     assert_eq!(args.last().unwrap(), r"^zh\-Hans$");
   }
 
   #[test]
+  fn subtitle_regression_explicit_auto_preserves_orig_selection() {
+    let overrides = crate::models::download::SubtitleOverrides {
+      auto_languages: Some(vec![" EN-ORIG ".into()]),
+      ..Default::default()
+    };
+    let args = build_subtitle_args(
+      &SubtitleSettings::default(),
+      Some(&overrides),
+      Some(&inventory(&[], &["en", "en-orig"])),
+    )
+    .unwrap();
+    assert_eq!(args.last().unwrap(), r"^en\-orig$");
+  }
+
+  #[test]
+  fn subtitle_regression_explicit_manual_preserves_orig_selection() {
+    let overrides = crate::models::download::SubtitleOverrides {
+      manual_languages: Some(vec![" EN-ORIG ".into()]),
+      ..Default::default()
+    };
+    let args = build_subtitle_args(
+      &SubtitleSettings::default(),
+      Some(&overrides),
+      Some(&inventory(&["en", "en-orig"], &[])),
+    )
+    .unwrap();
+    assert_eq!(args.last().unwrap(), r"^en\-orig$");
+  }
+
+  #[test]
+  fn subtitle_regression_explicit_ids_do_not_fall_back_to_base() {
+    for automatic in [false, true] {
+      let overrides = crate::models::download::SubtitleOverrides {
+        manual_languages: (!automatic).then(|| vec!["en".into()]),
+        auto_languages: automatic.then(|| vec!["en".into()]),
+        ..Default::default()
+      };
+      assert!(build_subtitle_args(
+        &SubtitleSettings::default(),
+        Some(&overrides),
+        Some(&inventory(&["en-orig"], &["en-orig"]))
+      )
+      .is_none());
+    }
+  }
+
+  #[test]
+  fn subtitle_regression_explicit_all_keeps_both_auto_ids() {
+    let overrides = crate::models::download::SubtitleOverrides {
+      auto_languages: Some(vec!["all".into()]),
+      ..Default::default()
+    };
+    let args = build_subtitle_args(
+      &SubtitleSettings::default(),
+      Some(&overrides),
+      Some(&inventory(&[], &["en", "en-orig", "zh-Hans"])),
+    )
+    .unwrap();
+    assert_eq!(args.last().unwrap(), r"^en$,^en\-orig$,^zh\-Hans$");
+  }
+
+  #[test]
+  fn subtitle_regression_empty_explicit_source_does_not_select_english() {
+    let overrides = crate::models::download::SubtitleOverrides {
+      manual_languages: Some(vec![]),
+      auto_languages: Some(vec!["zh-Hans".into()]),
+      ..Default::default()
+    };
+    let args = build_subtitle_args(
+      &SubtitleSettings::default(),
+      Some(&overrides),
+      Some(&inventory(&["en"], &["zh-Hans"])),
+    )
+    .unwrap();
+    assert_eq!(args.last().unwrap(), r"^zh\-Hans$");
+  }
+
+  #[test]
+  fn subtitle_regression_explicit_case_insensitive_keeps_platform_case() {
+    let overrides = crate::models::download::SubtitleOverrides {
+      manual_languages: Some(vec![" zh-hans ".into()]),
+      auto_languages: Some(vec![" ZH-HANT ".into()]),
+      ..Default::default()
+    };
+    let args = build_subtitle_args(
+      &SubtitleSettings::default(),
+      Some(&overrides),
+      Some(&inventory(&["zh-Hans"], &["zh-Hant"])),
+    )
+    .unwrap();
+    assert_eq!(args.last().unwrap(), r"^zh\-Hans$,^zh\-Hant$");
+  }
+
+  #[test]
   fn subtitles_disabled_returns_none() {
-    let settings = SubtitleSettings { enabled: false, ..Default::default() };
+    let settings = SubtitleSettings {
+      enabled: false,
+      ..Default::default()
+    };
     assert!(build_subtitle_args(&settings, None, Some(&inventory(&["en"], &[]))).is_none());
   }
 

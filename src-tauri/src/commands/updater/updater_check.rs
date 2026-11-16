@@ -3,7 +3,8 @@ use tauri::{AppHandle, State};
 use tauri_plugin_updater::{Result, UpdaterExt};
 use tokio::sync::Mutex;
 
-pub const UPDATE_ENDPOINT: &str = "https://github.com/jianjieyiban/JJYB-YouTube-dl/releases/latest/download/latest.json";
+pub const UPDATE_ENDPOINT: &str =
+  "https://github.com/jianjieyiban/JJYB-YouTube-dl/releases/latest/download/latest.json";
 pub const RELEASES_URL: &str = "https://github.com/jianjieyiban/JJYB-YouTube-dl/releases";
 
 #[derive(serde::Serialize)]
@@ -24,9 +25,14 @@ fn status_for_key(key: &str) -> UpdaterStatus {
 }
 
 pub fn configuration(app: &AppHandle) -> UpdaterStatus {
-  let key = app.config().plugins.0.get("updater")
+  let key = app
+    .config()
+    .plugins
+    .0
+    .get("updater")
     .and_then(|value| value.get("pubkey"))
-    .and_then(|value| value.as_str()).unwrap_or_default();
+    .and_then(|value| value.as_str())
+    .unwrap_or_default();
   status_for_key(key)
 }
 
@@ -41,7 +47,10 @@ pub struct UpdateCheck {
 }
 
 #[tauri::command]
-pub async fn updater_status(app: AppHandle, store: State<'_, Mutex<UpdateStore>>) -> Result<UpdaterStatus> {
+pub async fn updater_status(
+  app: AppHandle,
+  store: State<'_, Mutex<UpdateStore>>,
+) -> Result<UpdaterStatus> {
   let status = configuration(&app);
   if !status.configured {
     store.lock().await.clear();
@@ -50,15 +59,23 @@ pub async fn updater_status(app: AppHandle, store: State<'_, Mutex<UpdateStore>>
 }
 
 #[tauri::command]
-pub async fn updater_check(app: AppHandle, store: State<'_, Mutex<UpdateStore>>) -> Result<UpdateCheck> {
+pub async fn updater_check(
+  app: AppHandle,
+  store: State<'_, Mutex<UpdateStore>>,
+) -> Result<UpdateCheck> {
   let mut state = store.lock().await;
   state.clear();
   let status = configuration(&app);
   if status.configured {
-    state.update = app.updater_builder()
-      .endpoints(vec![UPDATE_ENDPOINT.parse().expect("static HTTPS updater URL")])?
+    state.update = app
+      .updater_builder()
+      .endpoints(vec![UPDATE_ENDPOINT
+        .parse()
+        .expect("static HTTPS updater URL")])?
       .timeout(std::time::Duration::from_secs(30))
-      .build()?.check().await?;
+      .build()?
+      .check()
+      .await?;
   }
   Ok(UpdateCheck {
     status,
@@ -92,8 +109,10 @@ mod tests {
 
   #[test]
   fn clear_invalidates_downloaded_bytes() {
-    let mut store = super::UpdateStore::default();
-    store.bytes = Some(vec![1, 2, 3]);
+    let mut store = super::UpdateStore {
+      bytes: Some(vec![1, 2, 3]),
+      ..Default::default()
+    };
     store.clear();
     assert!(store.bytes.is_none());
     assert!(store.update.is_none());

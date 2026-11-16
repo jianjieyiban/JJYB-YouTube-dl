@@ -112,7 +112,7 @@ fn collect_subtitle_languages(
       continue;
     }
     if seen.insert(normalized.clone()) {
-      languages.push(normalized);
+      languages.push(language.trim().to_string());
     }
   }
 

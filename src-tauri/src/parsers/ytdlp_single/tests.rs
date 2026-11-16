@@ -103,6 +103,33 @@ fn parse_single_without_formats_adds_auto_tracks() {
 }
 
 #[test]
+fn subtitle_regression_preserves_trimmed_platform_ids() {
+  let tracks = || {
+    vec![YtdlpSubtitle {
+      ext: Some("vtt".into()),
+    }]
+  };
+  let subtitles = HashMap::from([(" zh-Hans ".into(), tracks()), ("en-orig".into(), tracks())]);
+  assert_eq!(
+    super::collect_subtitle_languages(Some(&subtitles)),
+    vec!["en-orig", "zh-Hans"]
+  );
+}
+
+#[test]
+fn subtitle_regression_deduplicates_ids_case_insensitively() {
+  let tracks = || {
+    vec![YtdlpSubtitle {
+      ext: Some("vtt".into()),
+    }]
+  };
+  let subtitles = HashMap::from([("zh-Hans".into(), tracks()), ("ZH-HANS".into(), tracks())]);
+  let languages = super::collect_subtitle_languages(Some(&subtitles));
+  assert_eq!(languages.len(), 1);
+  assert!(subtitles.contains_key(&languages[0]));
+}
+
+#[test]
 fn parse_single_collects_subtitle_inventory() {
   let mut info = base_info(vec![make_format(
     Some("en"),

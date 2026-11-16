@@ -19,7 +19,7 @@
         @retry="retryGroup"
         @remove="removeGroup"
         @pause="pauseGroup"
-        @resume="downloadGroup"
+        @resume="mediaStore.resumeGroup(group.id)"
         :group="group"
     />
   </article>
@@ -98,7 +98,7 @@ const retryGroup = (): void => {
     toastStore.showToast(t('media.card.toasts.retryError'), { style: 'error' });
     return;
   }
-  mediaStore.dispatchMediaInfoFetch(group.url)
+  mediaStore.retryGroup(group.id)
     .then(() => {
       toastStore.showToast(t('media.card.toasts.retry'));
     })
