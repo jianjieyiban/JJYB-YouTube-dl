@@ -7,7 +7,8 @@ use tokio::sync::Mutex;
 
 pub const OWNER: &str = "jianjieyiban";
 pub const REPO: &str = "JJYB-YouTube-dl";
-pub const API_LATEST: &str = "https://api.github.com/repos/jianjieyiban/JJYB-YouTube-dl/releases/latest";
+pub const API_LATEST: &str =
+  "https://api.github.com/repos/jianjieyiban/JJYB-YouTube-dl/releases/latest";
 pub const RELEASES_URL: &str = "https://github.com/jianjieyiban/JJYB-YouTube-dl/releases";
 pub use crate::portable_transaction::UPDATE_PUBLIC_KEY;
 
@@ -39,7 +40,10 @@ fn trusted_update_redirect(url: &url::Url) -> bool {
     && url.username().is_empty()
     && url.password().is_none()
     && url.port_or_known_default() == Some(443)
-    && matches!(url.host_str(), Some("github.com" | "release-assets.githubusercontent.com" | "objects.githubusercontent.com"))
+    && matches!(
+      url.host_str(),
+      Some("github.com" | "release-assets.githubusercontent.com" | "objects.githubusercontent.com")
+    )
 }
 
 fn trusted_api_request(url: &url::Url) -> bool {

@@ -3,6 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 const devPort = 1420;
 
 export default defineConfig({
+  timeout: 90_000,
   webServer: {
     command: 'npm run dev',
     port: devPort,

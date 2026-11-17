@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, mkdir, copyFile } from 'node:fs/promises';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { signBytes, verifyBytes } from './release-signing.ts';
@@ -27,6 +29,39 @@ function executable() {
   return bytes;
 }
 const date = '2026-11-17T00:00:00.000Z';
+
+test('release preflight accepts the shared updater trust root and rejects a foreign key', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'jjyb-preflight-test-'));
+  try {
+    const update = identity();
+    const tools = identity();
+    for (const path of ['scripts', 'src-tauri/src/commands/updater', 'src-tauri/src/binaries']) await mkdir(join(directory, path), { recursive: true });
+    for (const name of ['release-preflight.ts', 'release-signing.ts']) await copyFile(fileURLToPath(new URL(name, import.meta.url)), join(directory, 'scripts', name));
+    await writeFile(join(directory, 'package.json'), JSON.stringify({ type: 'module', version: '3.4.0' }));
+    await writeFile(join(directory, 'package-lock.json'), JSON.stringify({ version: '3.4.0', packages: { '': { version: '3.4.0' } } }));
+    await writeFile(join(directory, 'src-tauri/tauri.conf.json'), JSON.stringify({ version: '3.4.0' }));
+    await writeFile(join(directory, 'src-tauri/Cargo.toml'), 'version = "3.4.0"');
+    await writeFile(join(directory, 'src-tauri/Cargo.lock'), 'name = "jjyb-youtube-dl"\nversion = "3.4.0"');
+    await writeFile(join(directory, 'src-tauri/src/portable_transaction.rs'), `pub const UPDATE_PUBLIC_KEY: &str = "${update.public}";`);
+    await writeFile(join(directory, 'src-tauri/src/commands/updater/updater_check.rs'), 'pub use crate::portable_transaction::UPDATE_PUBLIC_KEY;');
+    await writeFile(join(directory, 'src-tauri/src/binaries/binaries_manager.rs'), `const TOOLS_PUBLIC_KEY: &str = "${tools.public}";`);
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: directory, stdio: 'pipe' });
+    git('init');
+    git('add', '.');
+    git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'fixture');
+    git('tag', 'v3.4.0');
+    const env = { ...process.env, REQUESTED_TAG: 'v3.4.0', JJYB_UPDATE_PUBLIC_KEY_HEX: update.public, JJYB_UPDATE_PRIVATE_KEY_B64: update.private, JJYB_TOOLS_PUBLIC_KEY_HEX: tools.public, JJYB_TOOLS_PRIVATE_KEY_B64: tools.private };
+    const run = () => spawnSync(process.execPath, ['scripts/release-preflight.ts'], { cwd: directory, env, encoding: 'utf8' });
+    const valid = run();
+    assert.equal(valid.status, 0, valid.stderr);
+    env.JJYB_UPDATE_PUBLIC_KEY_HEX = identity().public;
+    const foreign = run();
+    assert.notEqual(foreign.status, 0);
+    assert.match(foreign.stderr, /trust root/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test('portable manifest signs exact raw bytes and final x64 EXE', () => {
   const key = identity();

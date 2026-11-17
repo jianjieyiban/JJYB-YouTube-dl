@@ -35,6 +35,7 @@ impl<T: JsonBackedState> JsonStoreHandle<T> {
     })
   }
 
+  #[cfg(windows)]
   pub fn flush(&self) -> Result<(), tauri_plugin_store::Error> {
     self.store.save()
   }

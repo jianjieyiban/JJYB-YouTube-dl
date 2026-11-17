@@ -16,7 +16,6 @@ async function main() {
     || !cargo.includes(`version = "${version}"`)
     || !cargoLock.includes(`name = "jjyb-youtube-dl"\nversion = "${version}"`)) throw new Error('Release versions are not synchronized');
   for (const [file, key] of [
-    ['src-tauri/src/commands/updater/updater_check.rs', process.env.JJYB_UPDATE_PUBLIC_KEY_HEX],
     ['src-tauri/src/portable_transaction.rs', process.env.JJYB_UPDATE_PUBLIC_KEY_HEX],
     ['src-tauri/src/binaries/binaries_manager.rs', process.env.JJYB_TOOLS_PUBLIC_KEY_HEX],
   ]) {

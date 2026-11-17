@@ -40,6 +40,7 @@ pub fn subscribe_group(group_id: &str) -> watch::Receiver<bool> {
   }
 }
 
+#[cfg(windows)]
 pub fn has_pending_groups() -> bool {
   !RUNNING_GROUPS.lock().unwrap().is_empty()
 }
