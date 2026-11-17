@@ -50,6 +50,43 @@ test('Rust CI builds both embedded frontends before compilation', async () => {
   }
 });
 
+test('portable staging reports rejected relative paths without exposing file contents', async () => {
+  const source = await readFile(new URL('./package-portable.ps1', import.meta.url), 'utf8');
+  assert.match(source, /\$forbidden\s*\|\s*ForEach-Object/);
+  assert.match(source, /GetRelativePath\(\$layout,\s*\$_\.FullName\)/);
+  assert.match(source, /forbidden runtime or secret artifacts: \$rejected/);
+});
+
+test('portable guard allows only the public certifi bundle and rejects secrets', { skip: process.platform !== 'win32' }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'jjyb-package-guard-'));
+  try {
+    const source = await readFile(new URL('./package-portable.ps1', import.meta.url), 'utf8');
+    const guard = source.slice(source.indexOf('$forbidden ='), source.indexOf('& "$layout/jjyb-portable/bin/yt-dlp.exe"'));
+    const script = join(directory, 'guard.ps1');
+    await writeFile(script, `param([string]$layout)\n$ErrorActionPreference = 'Stop'\n${guard}`);
+    for (const [name, content, allowed] of [
+      ['jjyb-portable/bin/_internal/certifi/cacert.pem', '-----BEGIN CERTIFICATE-----\nYWJj\n-----END CERTIFICATE-----\n', true],
+      ['jjyb-portable/bin/_internal/certifi/cacert.pem', '-----BEGIN PRIVATE KEY-----\nYWJj\n-----END PRIVATE KEY-----', false],
+      ['jjyb-portable/bin/_internal/certifi/cacert.pem', 'garbage', false],
+      ['jjyb-portable/bin/_internal/certifi/cacert.pem', '# Public CA bundle\n-----BEGIN CERTIFICATE-----\nYWJj\n-----END CERTIFICATE-----\n', true],
+      ['jjyb-portable/bin/_internal/certifi/cacert.pem', '-----BEGIN CERTIFICATE-----\nYWJj\n-----END CERTIFICATE-----\n-----BEGIN PRIVATE KEY-----\nYWJj\n-----END PRIVATE KEY-----', false],
+      ['other/cacert.pem', '-----BEGIN CERTIFICATE-----\nYWJj\n-----END CERTIFICATE-----', false],
+      ['cookies.txt', 'secret', false],
+      ['private.pkcs8', 'secret', false],
+      ['debug.log', 'secret', false],
+    ] as const) {
+      const layout = await mkdtemp(join(directory, 'layout-'));
+      const target = join(layout, name);
+      await mkdir(join(target, '..'), { recursive: true });
+      await writeFile(target, content);
+      const result = spawnSync('pwsh', ['-NoProfile', '-File', script, layout], { encoding: 'utf8' });
+      assert.equal(result.status === 0, allowed, `${name}: ${result.stderr}`);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('normal startup without an update does not apply updater-only path restrictions', async () => {
   const source = await readFile(new URL('../src-tauri/src/portable_transaction.rs', import.meta.url), 'utf8');
   const startup = source.slice(source.lastIndexOf('pub fn startup()'));

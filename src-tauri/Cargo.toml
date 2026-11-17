@@ -1,7 +1,7 @@
 [package]
 name = "jjyb-youtube-dl"
 repository = "https://github.com/jianjieyiban/JJYB-YouTube-dl"
-version = "3.4.1"
+version = "3.4.2"
 description = "JJYB 视频下载器，支持多站点视频与音频下载。"
 license = "AGPL-3.0-or-later"
 authors = ["jianjieyiban"]

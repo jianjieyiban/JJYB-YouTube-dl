@@ -25,9 +25,22 @@ foreach ($item in @('src-tauri/LICENSE-OpenCC-Apache-2.0', 'src-tauri/NOTICE-Ope
 }
 Copy-Item -LiteralPath 'docs/manifest/manifest.json', 'docs/manifest/manifest.sig' -Destination "$layout/jjyb-portable"
 $forbidden = Get-ChildItem -LiteralPath $layout -Recurse -Force | Where-Object {
-  $_.Name -match '(?i)(cookie|\.pkcs8|\.pfx$|\.pem$|\.log$|\.download$|^\.env|^profile$|^cache$|^\.tmp-)'
+  $relative = [IO.Path]::GetRelativePath($layout, $_.FullName).Replace('\', '/')
+  if (-not $_.PSIsContainer -and $relative -ceq 'jjyb-portable/bin/_internal/certifi/cacert.pem') {
+    # certifi ships public CA certificates, never signing keys or user credentials.
+    $pem = Get-Content -LiteralPath $_.FullName -Raw
+    $certificates = '(?s)-----BEGIN CERTIFICATE-----\s+[A-Za-z0-9+/=\s]+-----END CERTIFICATE-----'
+    $withoutComments = $pem -replace '(?m)^#[^\r\n]*', ''
+    $remaining = $withoutComments -replace $certificates, ''
+    -not ($withoutComments -match $certificates -and [string]::IsNullOrWhiteSpace($remaining))
+  } else {
+    $_.Name -match '(?i)(cookie|\.pkcs8|\.pfx$|\.pem$|\.log$|\.download$|^\.env|^profile$|^cache$|^\.tmp-)'
+  }
 }
-if ($forbidden) { throw 'Portable staging contains forbidden runtime or secret artifacts' }
+if ($forbidden) {
+  $rejected = ($forbidden | ForEach-Object { [IO.Path]::GetRelativePath($layout, $_.FullName) }) -join ', '
+  throw "Portable staging contains forbidden runtime or secret artifacts: $rejected"
+}
 & "$layout/jjyb-portable/bin/yt-dlp.exe" --version
 if ($LASTEXITCODE -ne 0) { throw 'yt-dlp smoke test failed' }
 & "$layout/jjyb-portable/bin/ffmpeg.exe" -version
