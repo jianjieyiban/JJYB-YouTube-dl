@@ -181,6 +181,8 @@ pub fn run() {
       preferences_set,
       binaries_check,
       binaries_ensure,
+      binaries_check_updates,
+      binaries_update,
       updater_status,
       updater_check,
       updater_download,

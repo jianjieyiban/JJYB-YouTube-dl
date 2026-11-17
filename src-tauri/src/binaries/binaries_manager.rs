@@ -5,6 +5,7 @@ use crate::binaries::binaries_extractor::{
   extract_tar_bz2, extract_tar_bz2_bundle, extract_zip, extract_zip_bundle,
 };
 use crate::binaries::binaries_state::CheckResult;
+use crate::binaries::tool_resolver::{ToolResolver, REQUIRED_TOOLS};
 use crate::paths::PathsManager;
 use base64::Engine;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -176,6 +177,19 @@ impl BinariesManager {
   }
 
   pub async fn check(&self) -> Result<CheckResult, AnyError> {
+    let resolver = ToolResolver::new(&self.app.state::<PathsManager>());
+    let tools = tokio::task::spawn_blocking(move || {
+      REQUIRED_TOOLS
+        .iter()
+        .filter(|name| resolver.resolve(name).is_none())
+        .map(|name| (*name).to_string())
+        .collect()
+    })
+    .await?;
+    Ok(CheckResult { tools })
+  }
+
+  pub async fn check_updates(&self) -> Result<CheckResult, AnyError> {
     let bin = &self.bin_dir;
     tokio::fs::create_dir_all(&bin).await?;
 
@@ -194,6 +208,21 @@ impl BinariesManager {
   }
 
   pub async fn ensure(&self, allow: Option<&[String]>) -> Result<(), AnyError> {
+    let mut missing = self.check().await?.tools;
+    if let Some(allow) = allow {
+      missing.retain(|name| allow.contains(name));
+    }
+    if missing.is_empty() {
+      return Ok(());
+    }
+    self.install(Some(&missing), true).await
+  }
+
+  pub async fn update(&self, allow: Option<&[String]>) -> Result<(), AnyError> {
+    self.install(allow, false).await
+  }
+
+  async fn install(&self, allow: Option<&[String]>, missing_only: bool) -> Result<(), AnyError> {
     let bin = &self.bin_dir;
     tokio::fs::create_dir_all(&bin).await?;
 
@@ -205,7 +234,9 @@ impl BinariesManager {
     let arch = Self::current_platform();
 
     let manifest = self.fetch_manifest().await?;
-    let plan = self.build_plan(&manifest, &meta, &arch, allow).await?;
+    let empty_meta = Metadata::default();
+    let plan_meta = if missing_only { &empty_meta } else { &meta };
+    let plan = self.build_plan(&manifest, plan_meta, &arch, allow).await?;
     if plan.is_empty() {
       return Ok(());
     }

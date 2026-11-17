@@ -35,13 +35,14 @@ import { ArrowRightIcon } from '@heroicons/vue/24/solid';
 import { computed, onMounted, ref } from 'vue';
 import BaseSubNav from '../../components/base/BaseSubNav.vue';
 import BaseButton from '../../components/base/BaseButton.vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import ToolCard from '../../components/tool-card/ToolCard.vue';
 import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
 const binariesStore = useBinariesStore();
 const router = useRouter();
+const route = useRoute();
 
 const tools = computed(() => binariesStore.tools);
 const isInstalling = ref(true);
@@ -54,7 +55,11 @@ onMounted(async () => {
 
 const ensureBinaries = async () => {
   try {
-    await binariesStore.ensure();
+    if (route.query.mode === 'update') {
+      await binariesStore.update();
+    } else {
+      await binariesStore.ensure();
+    }
     isInstalling.value = false;
     startCountdown();
   } catch (e) {

@@ -88,6 +88,8 @@ pub struct DownloadItem {
   #[serde(default)]
   pub subtitles_only: bool,
   #[serde(default)]
+  pub thumbnail_only: bool,
+  #[serde(default)]
   pub subtitle_inventory: Option<SubtitleInventory>,
   #[serde(default)]
   pub overrides: Option<DownloadOverrides>,

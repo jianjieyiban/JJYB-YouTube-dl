@@ -73,6 +73,28 @@ impl PathsManager {
     &self.bin_dir
   }
 
+  pub fn tool_dirs(&self) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(exe_dir) = Self::resolve_executable_path() {
+      let portable = exe_dir.join(PORTABLE_DIR);
+      if self.app_dir == portable {
+        dirs.push(portable.join(BIN_DIR));
+      }
+      dirs.push(exe_dir.join(BIN_DIR));
+    }
+    dirs.push(self.bin_dir.clone());
+    if let Some(path) = std::env::var_os("PATH") {
+      dirs.extend(std::env::split_paths(&path).filter(|dir| dir.is_absolute()));
+    }
+    let mut unique = Vec::new();
+    for dir in dirs {
+      if !unique.contains(&dir) {
+        unique.push(dir);
+      }
+    }
+    unique
+  }
+
   fn resolve_bin_dir(app_dir: PathBuf) -> (PathBuf, bool) {
     Self::resolve_bin_dir_with(
       app_dir,
@@ -143,6 +165,9 @@ impl PathsManager {
     snap_user_common: Option<PathBuf>,
   ) -> (PathBuf, bool) {
     if let Some(exe_dir) = exe_dir {
+      if app_dir == exe_dir.join(PORTABLE_DIR) {
+        return (app_dir.join(BIN_DIR), false);
+      }
       let bin_dir = exe_dir.join(BIN_DIR);
       if bin_dir.exists() {
         return (bin_dir, true);
@@ -274,6 +299,17 @@ mod tests {
 
     assert_eq!(resolved, bin_dir);
     assert!(is_microsoft_store);
+  }
+
+  #[test]
+  fn empty_sibling_bin_does_not_shadow_portable_bin() {
+    let base = temp_dir("portable-bin-shadow");
+    let app_dir = base.join(PORTABLE_DIR);
+    fs::create_dir_all(base.join(BIN_DIR)).unwrap();
+    fs::create_dir_all(app_dir.join(BIN_DIR)).unwrap();
+    let (resolved, store) = PathsManager::resolve_bin_dir_with(app_dir.clone(), Some(base), None);
+    assert_eq!(resolved, app_dir.join(BIN_DIR));
+    assert!(!store);
   }
 
   #[test]

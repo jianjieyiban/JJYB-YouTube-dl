@@ -1,5 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { clearMocks } from '@tauri-apps/api/mocks';
+import { reactive } from 'vue';
+import { useMediaDiagnosticsStore } from '../../src/stores/media/diagnostics';
 import { installTauriMock } from '../utils/tauriMock.ts';
 import { useMediaStore } from '../../src/stores/media/media';
 import { useMediaGroupStore } from '../../src/stores/media/group';
@@ -78,6 +80,74 @@ describe('media store', () => {
     clearMocks();
   });
 
+  it('downloads options containing nested Vue proxies from the format selector', async () => {
+    const download = vi.fn(() => 'ok');
+    installTauriMock({ media_download: download });
+    const group = createPlaylistGroup('nested-options', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    const videoCodecs = reactive([{ id: 'avc1', label: 'H.264' }]);
+    await useMediaStore().downloadGroup(group.id, { trackType: TrackType.both, videoCodecs });
+    expect(download).toHaveBeenCalledOnce();
+    expect(useMediaStateStore().getGroupState(group.id)).toBe(MediaState.downloading);
+  });
+
+  it('reports preparation failures visibly without leaving tasks downloading', async () => {
+    installTauriMock({});
+    const group = createPlaylistGroup('prepare-error', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    const options = { trackType: TrackType.both, get height(): number {
+      throw new Error('Invalid format');
+    } };
+    await expect(useMediaStore().downloadGroup(group.id, options)).resolves.toBeUndefined();
+    expect(useMediaStateStore().getGroupState(group.id)).toBe(MediaState.error);
+    expect(useMediaDiagnosticsStore().findLastFatalByGroupId(group.id)?.message).toContain('Invalid format');
+  });
+
+  it('does not submit the same running task twice', async () => {
+    const download = vi.fn(() => 'ok');
+    installTauriMock({ media_download: download });
+    const group = createPlaylistGroup('duplicate-download', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    await useMediaStore().downloadGroup(group.id, { trackType: TrackType.both });
+    await useMediaStore().downloadGroup(group.id, { trackType: TrackType.both });
+    expect(download).toHaveBeenCalledOnce();
+  });
+
+  it('marks every item failed when a combined task cannot reach the backend', async () => {
+    installTauriMock({ media_download: () => {
+      throw new Error('IPC unavailable');
+    } });
+    const group = createPlaylistGroup('combined-ipc-error', 2);
+    group.isCombined = true;
+    group.items.child = { ...group.items.leader, id: 'child', entries: undefined, isLeader: false };
+    useMediaGroupStore().createGroup(group);
+    await useMediaStore().downloadGroup(group.id, { trackType: TrackType.both });
+    expect(useMediaStateStore().getState('child')).toBe(MediaState.error);
+    expect(useMediaStateStore().getGroupState(group.id)).toBe(MediaState.error);
+  });
+
+  it('submits a standalone thumbnail task without changing ordinary saved options', async () => {
+    let payload: unknown;
+    installTauriMock({ media_download: (_cmd, args) => {
+      payload = args;
+    } });
+    const group = createPlaylistGroup('thumbnail-only', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    const optionsStore = useMediaOptionsStore();
+    optionsStore.setOptions(group.id, { trackType: TrackType.both, height: 720 });
+    await useMediaStore().downloadThumbnail(group.id);
+    expect(payload).toMatchObject({ items: [{ thumbnailOnly: true, subtitlesOnly: false, format: { thumbnailOnly: true, subtitlesOnly: false } }] });
+    expect(optionsStore.getOptions(group.id)).toEqual({ trackType: TrackType.both, height: 720 });
+  });
+
   it('submits subtitle-only tasks without AV formats and preserves explicit languages', async () => {
     let payload: Record<string, unknown> | undefined;
     installTauriMock({
@@ -119,6 +189,7 @@ describe('media store', () => {
     const mediaStore = useMediaStore();
 
     await mediaStore.downloadSubtitles(group.id);
+    useMediaStateStore().setGroupState(group.id, MediaState.configure);
     await mediaStore.downloadGroup(group.id, optionsStore.getOptions(group.id)!);
 
     expect(payloads[0]).toMatchObject({ items: [{ subtitlesOnly: true }] });

@@ -58,9 +58,15 @@ pub async fn run_ytdlp_download(
     .with_progress_args()
     .with_network_args(entry.overrides.as_ref())
     .with_auth_args(entry.overrides.as_ref())
-    .with_subtitle_args(entry.overrides.as_ref(), entry.subtitle_inventory.as_ref())
     .with_input_filter_args(entry.overrides.as_ref());
-  let runner = if entry.subtitles_only {
+  let runner = if entry.thumbnail_only {
+    runner.with_args(thumbnail_only_args())
+  } else {
+    runner.with_subtitle_args(entry.overrides.as_ref(), entry.subtitle_inventory.as_ref())
+  };
+  let runner = if entry.thumbnail_only {
+    runner
+  } else if entry.subtitles_only {
     runner.with_args(["--skip-download"])
   } else {
     runner
@@ -68,7 +74,7 @@ pub async fn run_ytdlp_download(
       .with_format_args(&entry.format, entry.overrides.as_ref())
       .with_input_args(entry.overrides.as_ref())
   };
-  let output_args = match if entry.subtitles_only {
+  let output_args = match if entry.subtitles_only || entry.thumbnail_only {
     Ok(Vec::new())
   } else {
     runner.output_args(&entry.format, entry.overrides.as_ref())
@@ -101,7 +107,11 @@ pub async fn run_ytdlp_download(
       },
       manifest.path().to_string_lossy().into_owned(),
       "--print-to-file".into(),
-      "after_move:%(filepath)j".into(),
+      if entry.thumbnail_only {
+        "after_video:%(thumbnails)j".into()
+      } else {
+        "after_move:%(filepath)j".into()
+      },
       media_manifest.path().to_string_lossy().into_owned(),
     ])
     .with_url(&entry.url);
@@ -179,6 +189,25 @@ pub async fn run_ytdlp_download(
           }
           YtdlpCommandEvent::Terminated(term) => {
             if term.code == Some(0) {
+              if entry.thumbnail_only {
+                let image = match finish_thumbnail(media_manifest.path()) {
+                  Ok(image) => image,
+                  Err(err) => {
+                    emit_internal_fatal(&app, &entry, format!("Thumbnail processing failed: {err}"), Some(err.clone()));
+                    return Err(YtdlpDownloadError::RunnerError(err));
+                  }
+                };
+                if is_cancelled_now(&cancel_rx) { return Ok(()); }
+                let _ = app.emit("media_destination", crate::models::MediaDestination {
+                  id: entry.id.clone(),
+                  group_id: entry.group_id.clone(),
+                  destination: crate::models::progress::MediaDestinationPath {
+                    confidence: 100,
+                    path: image.to_string_lossy().into_owned(),
+                  },
+                  is_merged: false,
+                });
+              } else {
               let explicit_tracks = entry.overrides.as_ref().and_then(|value| value.subtitles.as_ref()).is_some_and(|value| value.manual_languages.is_some() || value.auto_languages.is_some());
               let result = finish_download_subtitles(manifest.path(), &subtitle_settings, explicit_tracks, entry.subtitles_only);
               let subtitles = match result {
@@ -194,6 +223,7 @@ pub async fn run_ytdlp_download(
                   emit_internal_fatal(&app, &entry, format!("Subtitle embedding failed: {err}"), Some(err.clone()));
                   return Err(YtdlpDownloadError::RunnerError(err));
                 }
+              }
               }
               if is_cancelled_now(&cancel_rx) { return Ok(()); }
               let _ = app.emit(
@@ -245,6 +275,52 @@ pub async fn run_ytdlp_download(
   Err(YtdlpDownloadError::EventStreamEnded)
 }
 
+fn thumbnail_only_args() -> Vec<&'static str> {
+  vec![
+    "--skip-download",
+    "--write-thumbnail",
+    "--convert-thumbnails",
+    "jpg",
+    "--no-write-subs",
+    "--no-write-auto-subs",
+    "--no-embed-subs",
+    "--no-embed-thumbnail",
+    "--no-embed-metadata",
+  ]
+}
+
+fn finish_thumbnail(manifest: &std::path::Path) -> Result<std::path::PathBuf, String> {
+  use std::io::Read;
+  let contents = std::fs::read_to_string(manifest).map_err(|err| err.to_string())?;
+  for line in contents.lines().filter(|line| !line.trim().is_empty()) {
+    let thumbnails: serde_json::Value =
+      serde_json::from_str(line).map_err(|err| err.to_string())?;
+    if let Some(thumbnails) = thumbnails.as_array() {
+      for thumbnail in thumbnails.iter().rev() {
+        let Some(path) = thumbnail.get("filepath").and_then(|value| value.as_str()) else {
+          continue;
+        };
+        let path = std::path::PathBuf::from(path);
+        if !path
+          .extension()
+          .is_some_and(|ext| ext.eq_ignore_ascii_case("jpg"))
+        {
+          continue;
+        }
+        let mut header = [0; 3];
+        if std::fs::File::open(&path)
+          .and_then(|mut file| file.read_exact(&mut header))
+          .is_ok()
+          && header == [0xff, 0xd8, 0xff]
+        {
+          return std::fs::canonicalize(path).map_err(|err| err.to_string());
+        }
+      }
+    }
+  }
+  Err("No JPEG thumbnail was downloaded or thumbnail conversion failed".into())
+}
+
 fn finish_download_subtitles(
   manifest: &std::path::Path,
   settings: &crate::state::config_models::SubtitleSettings,
@@ -264,14 +340,12 @@ async fn embed_subtitles(
   subtitles: &[std::path::PathBuf],
   cancel: &mut watch::Receiver<bool>,
 ) -> Result<(), String> {
-  let binary = app
-    .state::<crate::paths::PathsManager>()
-    .bin_dir()
-    .join(if cfg!(windows) {
-      "ffmpeg.exe"
-    } else {
-      "ffmpeg"
-    });
+  let resolver =
+    crate::binaries::tool_resolver::ToolResolver::new(&app.state::<crate::paths::PathsManager>());
+  let binary = tokio::task::spawn_blocking(move || resolver.ffmpeg_pair().0)
+    .await
+    .map_err(|e| e.to_string())?
+    .ok_or("No usable ffmpeg found")?;
   super::subtitle_embed::embed_with_binary(&binary, manifest, subtitles, cancel).await
 }
 
@@ -364,6 +438,52 @@ fn parse_clock_secs(value: &str) -> Option<f64> {
 mod tests {
   use super::finish_download_subtitles;
   use crate::state::config_models::SubtitleSettings;
+
+  #[test]
+  fn thumbnail_only_args_disable_other_outputs() {
+    let args = super::thumbnail_only_args();
+    for expected in [
+      "--skip-download",
+      "--write-thumbnail",
+      "--convert-thumbnails",
+      "jpg",
+      "--no-write-subs",
+      "--no-write-auto-subs",
+      "--no-embed-subs",
+      "--no-embed-thumbnail",
+      "--no-embed-metadata",
+    ] {
+      assert!(args.contains(&expected), "missing {expected}");
+    }
+  }
+
+  #[test]
+  fn thumbnail_only_requires_existing_converted_jpeg() {
+    let directory = tempfile::tempdir().unwrap();
+    let manifest = directory.path().join("manifest.jsonl");
+    std::fs::write(&manifest, "null\n").unwrap();
+    assert!(super::finish_thumbnail(&manifest).is_err());
+    let image = directory.path().join("cover.jpg");
+    std::fs::write(
+      &manifest,
+      serde_json::json!([{ "filepath": image }]).to_string(),
+    )
+    .unwrap();
+    assert!(super::finish_thumbnail(&manifest).is_err());
+    std::fs::write(&image, [0xff, 0xd8, 0xff, 0xd9]).unwrap();
+    assert_eq!(
+      super::finish_thumbnail(&manifest).unwrap(),
+      std::fs::canonicalize(image).unwrap()
+    );
+    let unconverted = directory.path().join("cover.webp");
+    std::fs::write(&unconverted, b"RIFFimage").unwrap();
+    std::fs::write(
+      &manifest,
+      serde_json::json!([{ "filepath": unconverted }]).to_string(),
+    )
+    .unwrap();
+    assert!(super::finish_thumbnail(&manifest).is_err());
+  }
 
   #[test]
   fn subtitle_regression_av_without_target_subtitles_completes() {

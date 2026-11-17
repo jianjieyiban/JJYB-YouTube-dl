@@ -350,6 +350,7 @@
         "externalUrl": "Visit on external link",
         "retry": "Retry download",
         "download": "Download individually",
+        "downloadThumbnail": "Download thumbnail only",
         "preferences": "Download preferences",
         "pause": "Pause download",
         "resume": "Resume download",

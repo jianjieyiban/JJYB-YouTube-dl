@@ -19,3 +19,20 @@ pub async fn binaries_ensure(
   state.finish();
   res
 }
+
+#[tauri::command]
+pub async fn binaries_update(
+  binaries_manager: State<'_, BinariesManager>,
+  state: State<'_, BinariesState>,
+  tools: Option<Vec<String>>,
+) -> Result<(), String> {
+  if !state.try_start() {
+    return Ok(());
+  }
+  let res = binaries_manager
+    .update(tools.as_deref())
+    .await
+    .map_err(|e| e.to_string());
+  state.finish();
+  res
+}

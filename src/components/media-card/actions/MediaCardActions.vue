@@ -37,6 +37,12 @@
         :icon="ArrowDownTrayIcon"
     />
     <media-card-action-item
+        @click="downloadThumbnail"
+        :disabled="!canDownload"
+        :label="t('media.card.actions.downloadThumbnail')"
+        :icon="PhotoIcon"
+    />
+    <media-card-action-item
         :disabled="!canSetPreferences"
         :to="{ name: 'preferences.quality', params: { groupId: group.id } }"
         :label="t('media.card.actions.preferences')"
@@ -60,6 +66,7 @@ import {
   XCircleIcon,
   PauseIcon,
   PlayIcon,
+  PhotoIcon,
 } from '@heroicons/vue/24/solid';
 import MediaCardActionItem from './MediaCardActionItem.vue';
 import { computed, PropType } from 'vue';
@@ -67,6 +74,7 @@ import { useOpener } from '../../../composables/useOpener';
 import { MediaState, useMediaStateStore } from '../../../stores/media/state';
 import { Group } from '../../../tauri/types/group';
 import { useI18n } from 'vue-i18n';
+import { useMediaStore } from '../../../stores/media/media';
 
 const { t } = useI18n();
 const { openUrl } = useOpener();
@@ -86,6 +94,10 @@ const { group } = defineProps({
   },
 });
 
+const mediaStore = useMediaStore();
+const downloadThumbnail = (): void => {
+  void mediaStore.downloadThumbnail(group.id);
+};
 const stateStore = useMediaStateStore();
 const groupState = computed(() => stateStore.getGroupState(group.id));
 

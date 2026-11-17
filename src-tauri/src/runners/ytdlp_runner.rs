@@ -1,3 +1,4 @@
+use crate::binaries::tool_resolver::ToolResolver;
 use crate::models::download::{DownloadOverrides, FormatOptions, PlaylistMode};
 use crate::models::SubtitleInventory;
 use crate::models::TrackType;
@@ -54,13 +55,13 @@ pub struct YtdlpRunner<'a> {
   cfg: Arc<Config>,
   prefs: Arc<Preferences>,
   args: Vec<String>,
-  bin_dir: PathBuf,
+  resolver: ToolResolver,
 }
 
 impl<'a> YtdlpRunner<'a> {
   pub fn new(app: &'a AppHandle) -> Self {
     let paths_manager = app.state::<PathsManager>();
-    let bin_dir = paths_manager.bin_dir().clone();
+    let resolver = ToolResolver::new(&paths_manager);
     let args = vec!["--encoding".into(), "utf-8".into()];
     let cfg_handle = app.state::<SharedConfig>();
     let cfg = cfg_handle.load();
@@ -72,7 +73,7 @@ impl<'a> YtdlpRunner<'a> {
       cfg,
       prefs,
       args,
-      bin_dir,
+      resolver,
     }
   }
 
@@ -280,7 +281,7 @@ impl<'a> YtdlpRunner<'a> {
   pub async fn output(self) -> Result<YtdlpOutput, String> {
     log_run_summary(&self.args);
     tracing::debug!("Running command: yt-dlp {}", self.args.join(" "));
-    let mut command = self.build_command();
+    let mut command = self.build_command()?;
 
     configure_command(&mut command).map_err(|e| format!("yt-dlp spawn setup failed: {e}"))?;
 
@@ -301,7 +302,7 @@ impl<'a> YtdlpRunner<'a> {
   pub fn spawn(self) -> Result<(UnboundedReceiver<YtdlpCommandEvent>, YtdlpChild), String> {
     log_run_summary(&self.args);
     tracing::debug!("Running command: yt-dlp {}", self.args.join(" "));
-    let mut command = self.build_command();
+    let mut command = self.build_command()?;
     command
       .stdin(Stdio::piped())
       .stdout(Stdio::piped())
@@ -353,13 +354,36 @@ impl<'a> YtdlpRunner<'a> {
     Ok((rx, child))
   }
 
-  fn build_command(&self) -> Command {
-    let separator = if cfg!(windows) { ';' } else { ':' };
-    let path_env = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("{}{}{}", self.bin_dir.display(), separator, path_env);
-    let mut command = Command::new("yt-dlp");
-    command.args(&self.args).env("PATH", new_path);
-    command
+  fn build_command(&self) -> Result<Command, String> {
+    let binary = self
+      .resolver
+      .resolve("yt-dlp")
+      .ok_or("No usable yt-dlp found")?;
+    let mut command = Command::new(binary);
+    command.args(&self.args);
+    let (ffmpeg, ffprobe) = self.resolver.ffmpeg_pair();
+    if let Some(ref encoder) = ffmpeg {
+      command.arg("--ffmpeg-location").arg(encoder);
+    }
+    if let Some(deno) = self.resolver.resolve("deno") {
+      command
+        .arg("--js-runtimes")
+        .arg(format!("deno:{}", deno.display()));
+    }
+    let mut dirs: Vec<PathBuf> = ffmpeg
+      .iter()
+      .chain(ffprobe.iter())
+      .filter_map(|path| path.parent().map(|parent| parent.to_path_buf()))
+      .collect();
+    dirs.extend(self.resolver.tool_dirs().iter().cloned());
+    if let Some(path) = std::env::var_os("PATH") {
+      dirs.extend(std::env::split_paths(&path));
+    }
+    command.env(
+      "PATH",
+      std::env::join_paths(dirs).map_err(|e| e.to_string())?,
+    );
+    Ok(command)
   }
 
   fn apply_auth_secrets(&mut self, s: AuthSecrets) {

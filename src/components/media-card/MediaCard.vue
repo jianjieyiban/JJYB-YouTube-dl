@@ -82,8 +82,7 @@ const activeStepProps = computed(() => ({ group }));
 const downloadGroup = (): void => {
   const options = optionsStore.getOptions(group.id);
   if (!options) {
-    // TODO show a toast?
-    console.warn(`No options found for group: ${group.id}, cannot download.`);
+    toastStore.showToast(t('media.card.toasts.retryError'), { style: 'error' });
     return;
   }
   void mediaStore.downloadGroup(group.id, options);

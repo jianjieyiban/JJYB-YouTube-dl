@@ -13,6 +13,10 @@
         class="toggle toggle-primary"
     />
     <p class="label">{{ t('settings.update.updateBinaries.hint') }}</p>
+    <button type="button" class="btn btn-subtle" :disabled="checkingBinaries" @click="checkBinaryUpdates">
+      {{ checkingBinaries ? t('common.pleaseWait') : '检查工具更新' }}
+    </button>
+    <p v-if="binaryUpdateMessage" role="status" class="label">{{ binaryUpdateMessage }}</p>
     <label class="font-semibold mt-2" for="updateApp">
       {{ t('settings.update.updateApp.label') }}
     </label>
@@ -34,9 +38,32 @@
 import BaseFieldset from '../base/BaseFieldset.vue';
 import { Settings } from '../../tauri/types/config.ts';
 import { useI18n } from 'vue-i18n';
-import { onMounted } from 'vue';
+import { onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { useBinariesStore } from '../../stores/binaries';
 
 import { useUpdaterStore } from '../../stores/updater';
+
+const binariesStore = useBinariesStore();
+const router = useRouter();
+const checkingBinaries = ref(false);
+const binaryUpdateMessage = ref('');
+const checkBinaryUpdates = async () => {
+  checkingBinaries.value = true;
+  binaryUpdateMessage.value = '';
+  try {
+    const tools = await binariesStore.checkUpdates();
+    if (tools.length > 0) {
+      await router.push({ path: '/install', query: { mode: 'update' } });
+    } else {
+      binaryUpdateMessage.value = '工具已是最新版本';
+    }
+  } catch (error) {
+    binaryUpdateMessage.value = `检查工具更新失败：${String(error)}`;
+  } finally {
+    checkingBinaries.value = false;
+  }
+};
 
 const updater = useUpdaterStore();
 onMounted(() => updater.loadConfiguration());

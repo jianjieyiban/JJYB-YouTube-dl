@@ -350,6 +350,7 @@
         "externalUrl": "在外部 URL 中打开",
         "retry": "重试下载",
         "download": "单独下载",
+        "downloadThumbnail": "仅下载封面",
         "preferences": "下载偏好设置",
         "pause": "暂停下载",
         "resume": "继续下载",

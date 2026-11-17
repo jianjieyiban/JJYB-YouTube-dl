@@ -24,6 +24,19 @@ export const useBinariesStore = defineStore('binaries', () => {
     return result.tools;
   }
 
+  async function checkUpdates(): Promise<string[]> {
+    const result = await invoke<BinaryCheckPayload>('binaries_check_updates');
+    tools.value = {};
+    for (const tool of result.tools) {
+      tools.value[tool] = { total: 0, percent: 0, received: 0 };
+    }
+    return result.tools;
+  }
+
+  async function update() {
+    await invoke<void>('binaries_update', { tools: Object.keys(tools.value) });
+  }
+
   async function ensure(toEnsure?: string[]) {
     await invoke<void>('binaries_ensure', { tools: toEnsure ?? Object.keys(tools.value) });
   }
@@ -51,5 +64,5 @@ export const useBinariesStore = defineStore('binaries', () => {
     tool.error = `[${payload.stage}] ${payload.error}`;
   }
 
-  return { tools, check, ensure, processBinaryDownloadStart, processBinaryDownloadProgress, processBinaryDownloadError, processBinaryDownloadComplete };
+  return { tools, check, ensure, checkUpdates, update, processBinaryDownloadStart, processBinaryDownloadProgress, processBinaryDownloadError, processBinaryDownloadComplete };
 });

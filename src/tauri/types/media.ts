@@ -43,6 +43,7 @@ export enum AudioFormat {
 
 export type DownloadOptions = {
   subtitlesOnly?: boolean;
+  thumbnailOnly?: boolean;
   trackType: TrackType;
   abr?: number;
   height?: number;

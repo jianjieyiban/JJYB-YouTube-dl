@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { toRaw } from 'vue';
+
 import { invoke } from '@tauri-apps/api/core';
 import { v4 as uuidv4 } from 'uuid';
 import { MediaState, useMediaStateStore } from './state';
@@ -324,6 +324,10 @@ export const useMediaStore = defineStore('media', () => {
     await downloadGroup(groupId, options);
   }
 
+  async function downloadThumbnail(groupId: string) {
+    await downloadGroup(groupId, { ...getDownloadOptions(groupId), subtitlesOnly: false, thumbnailOnly: true });
+  }
+
   async function downloadGroup(
     groupId: string,
     options: DownloadOptions,
@@ -332,34 +336,39 @@ export const useMediaStore = defineStore('media', () => {
     watchClipboardStore.disable();
     const group = groupStore.findGroupById(groupId);
     if (!group) return;
-
-    const items: MediaItem[] = Object.values(group.items);
-    const itemsWithoutLeader: MediaItem[] = items.filter(item => !item.entries && stateStore.getState(item.id) !== MediaState.done);
-    const encodings = optionsStore.getEncodings(groupId);
-    const tracks = optionsStore.getTracks(groupId);
-    const existingOverrides = optionsStore.getOverrides(groupId);
-    const overrides = options.subtitlesOnly
-      ? { ...existingOverrides, subtitles: { ...existingOverrides?.subtitles, enabled: true, embedSubtitles: false } }
-      : existingOverrides;
-    const resolvedOptions: DownloadOptions = {
-      ...structuredClone(toRaw(options)),
-      ...(!useResolvedOptions && {
-        audioEncoding: encodings?.audio,
-        videoEncoding: encodings?.video,
-        audioTrack: tracks?.audio,
-        videoTrack: tracks?.video,
-      }),
-    };
-
-    if (itemsWithoutLeader.length === 0) return;
-    executionOptions.set(groupId, resolvedOptions);
-
-    const newState = group.isCombined ? MediaState.downloadingList : MediaState.downloading;
-    items
-      .filter(item => stateStore.getState(item.id) !== MediaState.done)
-      .forEach(item => stateStore.setState(item.id, newState));
+    const currentState = stateStore.getGroupState(groupId);
+    if (currentState === MediaState.downloading || currentState === MediaState.downloadingList) return;
 
     try {
+      const items: MediaItem[] = Object.values(group.items);
+      const itemsWithoutLeader: MediaItem[] = items.filter(item => !item.entries && stateStore.getState(item.id) !== MediaState.done);
+      const encodings = optionsStore.getEncodings(groupId);
+      const tracks = optionsStore.getTracks(groupId);
+      const existingOverrides = optionsStore.getOverrides(groupId);
+      const overrides = options.subtitlesOnly
+        ? { ...existingOverrides, subtitles: { ...existingOverrides?.subtitles, enabled: true, embedSubtitles: false } }
+        : existingOverrides;
+      const resolvedOptions: DownloadOptions = {
+        ...options,
+        videoCodecs: options.videoCodecs?.map(codec => typeof codec === 'string' ? codec : { ...codec }),
+        audioTrackIds: options.audioTrackIds ? [...options.audioTrackIds] : undefined,
+        videoTrackIds: options.videoTrackIds ? [...options.videoTrackIds] : undefined,
+        ...(!useResolvedOptions && {
+          audioEncoding: encodings?.audio,
+          videoEncoding: encodings?.video,
+          audioTrack: tracks?.audio,
+          videoTrack: tracks?.video,
+        }),
+      };
+
+      if (itemsWithoutLeader.length === 0) return;
+      executionOptions.set(groupId, resolvedOptions);
+
+      const newState = group.isCombined ? MediaState.downloadingList : MediaState.downloading;
+      items
+        .filter(item => stateStore.getState(item.id) !== MediaState.done)
+        .forEach(item => stateStore.setState(item.id, newState));
+
       await invoke<string>('media_download', {
         groupId,
         items: itemsWithoutLeader.map(item => ({
@@ -367,6 +376,7 @@ export const useMediaStore = defineStore('media', () => {
           url: item.url,
           format: resolvedOptions,
           subtitlesOnly: options.subtitlesOnly ?? false,
+          thumbnailOnly: options.thumbnailOnly ?? false,
           subtitleInventory: item.subtitleInventory,
           overrides,
           templateContext: {
@@ -375,6 +385,10 @@ export const useMediaStore = defineStore('media', () => {
         })),
       });
     } catch (e) {
+      for (const item of Object.values(group.items)) {
+        if (stateStore.getState(item.id) !== MediaState.done) stateStore.setState(item.id, MediaState.error);
+      }
+      stateStore.setGroupState(groupId, MediaState.error);
       diagnosticsStore.processMediaFatalPayload({
         groupId,
         id: groupId,
@@ -511,6 +525,7 @@ export const useMediaStore = defineStore('media', () => {
     addUrlBatchAndDownload,
     downloadGroup,
     downloadSubtitles,
+    downloadThumbnail,
     downloadAllGroups,
     pauseAllGroups,
     pauseGroup,
