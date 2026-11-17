@@ -15,7 +15,8 @@ import { notifyGroup } from '../../tauri/notifications';
 import { NotificationKind } from '../../tauri/types/app';
 
 export type MediaProgress = MediaProgressPayload & MediaProgressStagePayload;
-export type MediaGroupProgress = MediaGroupProgressPayload & MediaProgressStagePayload;
+type MediaOutcomeCounts = { succeeded: number; failed: number };
+export type MediaGroupProgress = MediaGroupProgressPayload & MediaProgressStagePayload & MediaOutcomeCounts;
 
 export const useMediaProgressStore = defineStore('media-progress', () => {
   const progress = ref<Record<string, MediaProgress>>({});
@@ -93,10 +94,9 @@ export const useMediaProgressStore = defineStore('media-progress', () => {
       const itemProgress = progress.value[id];
       return sum + (itemProgress?.speedBps ?? 0);
     }, 0);
-    const done = itemIds.filter((id) => {
-      const state = stateStore.getState(id);
-      return state === MediaState.done || state === MediaState.error;
-    }).length;
+    const succeeded = itemIds.filter(id => stateStore.getState(id) === MediaState.done).length;
+    const failed = itemIds.filter(id => stateStore.getState(id) === MediaState.error).length;
+    const done = succeeded + failed;
     let downloading = itemIds.filter(id =>
       stateStore.getState(id) === MediaState.downloading
       || stateStore.getState(id) === MediaState.downloadingList
@@ -136,17 +136,21 @@ export const useMediaProgressStore = defineStore('media-progress', () => {
       ready,
       total,
       done,
+      succeeded,
+      failed,
       downloading,
     };
   }
 
-  function findAllProgress(): Required<MediaItemsProgress> {
+  function findAllProgress(): Required<MediaItemsProgress> & MediaOutcomeCounts {
     const groups = groupStore.groups;
     const groupIds = Object.keys(groups);
 
-    const progress: Required<MediaItemsProgress> = {
+    const progress: Required<MediaItemsProgress> & MediaOutcomeCounts = {
       total: 0,
       done: 0,
+      succeeded: 0,
+      failed: 0,
       ready: 0,
       downloading: 0,
     };
@@ -156,6 +160,8 @@ export const useMediaProgressStore = defineStore('media-progress', () => {
       if (groupProgress) {
         progress.ready += groupProgress.ready ?? 0;
         progress.done += groupProgress.done ?? 0;
+        progress.succeeded += groupProgress.succeeded;
+        progress.failed += groupProgress.failed;
         progress.downloading += groupProgress.downloading ?? 0;
         if ((groupProgress.downloading ?? 0) > 0) {
           hasDownloading = true;

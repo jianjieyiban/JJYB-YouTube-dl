@@ -3,8 +3,22 @@
     <base-progress v-if="isDownloading" :max="progress.total" :value="progress.done" id="total">
       {{ t('layout.footer.progress.downloading', { done: progress.done, total: progress.total }) }}
     </base-progress>
-    <base-progress v-else-if="isCompleted" :max="progress.total" :value="progress.done" id="total">
-      {{ t('layout.footer.progress.completed', progress.total) }}
+    <base-progress
+        v-else-if="isCompleted"
+        :max="progress.total"
+        :value="progress.done"
+        :variant="progress.failed > 0 ? (progress.succeeded > 0 ? 'warning' : 'error') : 'primary'"
+        id="total"
+    >
+      <template v-if="progress.failed > 0 && progress.succeeded > 0">
+        {{ t('layout.footer.progress.mixed', { succeeded: progress.succeeded, failed: progress.failed }) }}
+      </template>
+      <template v-else-if="progress.failed > 0">
+        {{ t('layout.footer.progress.failed', progress.failed) }}
+      </template>
+      <template v-else>
+        {{ t('layout.footer.progress.completed', progress.succeeded) }}
+      </template>
     </base-progress>
     <base-progress v-else :max="1" :value="0" id="total">
       {{ t('layout.footer.progress.ready', progress.ready) }}

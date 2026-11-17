@@ -38,11 +38,38 @@ pub fn simplify_srt(text: &str, converter: &OpenCC) -> Result<String, String> {
   Ok(result)
 }
 
+#[derive(Debug, PartialEq)]
+pub enum SubtitleError {
+  NoSubtitles,
+  Internal(String),
+}
+
+impl From<String> for SubtitleError {
+  fn from(message: String) -> Self {
+    Self::Internal(message)
+  }
+}
+
+impl From<&str> for SubtitleError {
+  fn from(message: &str) -> Self {
+    Self::Internal(message.into())
+  }
+}
+
+impl std::fmt::Display for SubtitleError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::NoSubtitles => write!(f, "No subtitle tracks were downloaded"),
+      Self::Internal(message) => write!(f, "{message}"),
+    }
+  }
+}
+
 pub fn finish_subtitles(
   manifest: &Path,
   simplify: bool,
   required: bool,
-) -> Result<Vec<PathBuf>, String> {
+) -> Result<Vec<PathBuf>, SubtitleError> {
   let data = std::fs::read_to_string(manifest).map_err(|e| e.to_string())?;
   let converter = OpenCC::from_config(BuiltinConfig::T2s).map_err(|e| e.to_string())?;
   let mut files = Vec::new();
@@ -51,9 +78,10 @@ pub fn finish_subtitles(
       serde_json::from_str(line).map_err(|e| format!("Invalid subtitle artifact manifest: {e}"))?;
     if let Some(tracks) = tracks.as_object() {
       for (language, track) in tracks {
-        let Some(path) = track.get("filepath").and_then(Value::as_str) else {
-          continue;
-        };
+        let path = track
+          .get("filepath")
+          .and_then(Value::as_str)
+          .ok_or("Subtitle artifact has no filepath")?;
         let path = PathBuf::from(path).with_extension("srt");
         if files.contains(&path) {
           continue;
@@ -80,7 +108,7 @@ pub fn finish_subtitles(
     }
   }
   if required && files.is_empty() {
-    return Err("No subtitle tracks were downloaded".into());
+    return Err(SubtitleError::NoSubtitles);
   }
   Ok(files)
 }

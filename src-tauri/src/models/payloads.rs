@@ -55,6 +55,7 @@ pub struct MediaFatalPayload {
   pub exit_code: Option<i32>,
   #[serde(default)]
   pub internal: bool,
+  pub code: Option<String>,
   pub message: String,
   pub details: Option<String>,
   pub timestamp: u128,
@@ -67,6 +68,7 @@ impl MediaFatalPayload {
       group_id,
       exit_code: None,
       internal: true,
+      code: None,
       message,
       details,
       timestamp: std::time::SystemTime::now()
@@ -82,6 +84,7 @@ impl MediaFatalPayload {
       group_id,
       exit_code: Some(exit_code),
       internal: false,
+      code: None,
       message,
       details: None,
       timestamp: std::time::SystemTime::now()

@@ -1,5 +1,5 @@
 <template>
-  <aside class="flex flex-col justify-between gap-2 h-full">
+  <aside class="grid grid-cols-2 grid-rows-3 content-between items-center justify-items-center gap-2 h-full shrink-0">
     <media-card-action-item
         @click="removeItem"
         :label="t('media.card.actions.remove')"

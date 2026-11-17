@@ -73,7 +73,7 @@ const error = computed(() => {
     if (lastFatal.value.internal) {
       diagnostic.id = lastFatal.value.id;
       diagnostic.message = lastFatal.value.message;
-      diagnostic.code = 'unknown';
+      diagnostic.code = lastFatal.value.code ?? 'unknown';
       diagnostic.component = 'runner';
       diagnostic.raw = lastFatal.value.details ?? 'unknown';
       diagnostic.level = 'error';

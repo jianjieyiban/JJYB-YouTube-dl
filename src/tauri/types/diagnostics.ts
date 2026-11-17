@@ -14,6 +14,7 @@ interface MediaFatal {
   groupId: string;
   exitCode: number | null;
   internal: boolean;
+  code?: 'noSubtitles' | null;
   message: string;
   details: string | null;
   timestamp: number;

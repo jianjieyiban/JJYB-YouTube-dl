@@ -213,8 +213,9 @@ pub async fn run_ytdlp_download(
               let subtitles = match result {
                 Ok(files) => files,
                 Err(err) => {
-                  emit_internal_fatal(&app, &entry, format!("Subtitle processing failed: {err}"), Some(err.clone()));
-                  return Err(YtdlpDownloadError::RunnerError(err));
+                  let payload = subtitle_fatal(entry.group_id.clone(), entry.id.clone(), &err);
+                  let _ = app.emit("media_fatal", payload);
+                  return Err(YtdlpDownloadError::RunnerError(err.to_string()));
                 }
               };
               if !entry.subtitles_only && subtitle_settings.embed_subtitles && !subtitles.is_empty() {
@@ -326,12 +327,31 @@ fn finish_download_subtitles(
   settings: &crate::state::config_models::SubtitleSettings,
   explicit_tracks: bool,
   subtitles_only: bool,
-) -> Result<Vec<std::path::PathBuf>, String> {
+) -> Result<Vec<std::path::PathBuf>, super::subtitles::SubtitleError> {
   crate::runners::subtitles::finish_subtitles(
     manifest,
     settings.chinese_priority && !explicit_tracks,
     subtitles_only,
   )
+}
+
+fn subtitle_fatal(
+  group_id: String,
+  id: String,
+  error: &super::subtitles::SubtitleError,
+) -> MediaFatalPayload {
+  let mut payload = MediaFatalPayload::internal(
+    group_id,
+    id,
+    format!("Subtitle processing failed: {error}"),
+    Some(error.to_string()),
+  );
+  if matches!(error, super::subtitles::SubtitleError::NoSubtitles) {
+    payload.code = Some("noSubtitles".into());
+    payload.message = "找不到可下载的字幕，无法下载".into();
+    payload.details = None;
+  }
+  payload
 }
 
 async fn embed_subtitles(
@@ -508,9 +528,44 @@ mod tests {
         ..Default::default()
       };
       assert_eq!(
-        finish_download_subtitles(manifest.path(), &settings, false, true).unwrap_err(),
-        "No subtitle tracks were downloaded"
+        format!(
+          "{:?}",
+          finish_download_subtitles(manifest.path(), &settings, false, true).unwrap_err()
+        ),
+        "NoSubtitles"
       );
+    }
+  }
+
+  #[test]
+  fn subtitle_business_payload_preserves_classification_and_internal_errors() {
+    use super::super::subtitles::SubtitleError;
+    let manifest = tempfile::NamedTempFile::new().unwrap();
+    for data in ["", "null\n", "{}\n"] {
+      std::fs::write(manifest.path(), data).unwrap();
+      let error =
+        finish_download_subtitles(manifest.path(), &SubtitleSettings::default(), false, true)
+          .unwrap_err();
+      assert_eq!(error, SubtitleError::NoSubtitles);
+      let payload = super::subtitle_fatal("group".into(), "id".into(), &error);
+      assert_eq!(
+        serde_json::to_value(payload).unwrap()["code"],
+        "noSubtitles"
+      );
+    }
+    for data in [
+      "invalid json",
+      "{\"zh\": {}}",
+      "{\"zh\": {\"filepath\": \"missing.srt\"}}",
+    ] {
+      std::fs::write(manifest.path(), data).unwrap();
+      let error =
+        finish_download_subtitles(manifest.path(), &SubtitleSettings::default(), false, true)
+          .unwrap_err();
+      assert!(matches!(error, SubtitleError::Internal(_)));
+      let payload = super::subtitle_fatal("group".into(), "id".into(), &error);
+      assert!(payload.code.is_none());
+      assert!(payload.details.is_some());
     }
   }
 
@@ -526,7 +581,9 @@ mod tests {
     )
     .unwrap();
     assert_eq!(
-      finish_download_subtitles(&manifest, &SubtitleSettings::default(), false, false).unwrap_err(),
+      finish_download_subtitles(&manifest, &SubtitleSettings::default(), false, false)
+        .unwrap_err()
+        .to_string(),
       "Subtitle output is empty or invalid SRT"
     );
   }

@@ -101,7 +101,7 @@ const errors = computed((): MediaDiagnostic[] => {
   const fatalDiagnostics: MediaDiagnostic[] = diagnosticsStore.findFatalsByGroupId(groupId.value).map(fatal => ({
     ...fatal,
     level: 'error',
-    code: 'unknown',
+    code: fatal.code ?? 'unknown',
     raw: fatal.details != null ? `\n${fatal.details}` : '',
     component: null,
   }));
