@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { UpdaterStatusPayload, UpdaterCheckPayload, UpdaterDownloadProgressPayload } from '../tauri/types/updater';
+import { UpdaterStatusPayload, UpdaterCheckPayload, UpdaterDownloadProgressPayload, UpdaterPhase } from '../tauri/types/updater';
 import { useSettingsStore } from './settings';
 
 export const useUpdaterStore = defineStore('updater', () => {
@@ -11,9 +11,10 @@ export const useUpdaterStore = defineStore('updater', () => {
   const isIgnored = ref(false);
   const isNeedingRestart = ref(false);
   const lastError = ref<string | undefined>();
+  const phase = ref<UpdaterPhase>('idle');
   const settingsStore = useSettingsStore();
-
   const configuration = ref<UpdaterStatusPayload>();
+  let running = false;
 
   function clearPending() {
     checkResult.value = undefined;
@@ -21,76 +22,140 @@ export const useUpdaterStore = defineStore('updater', () => {
     downloadProgress.value = { received: 0, total: 0 };
   }
 
-  async function loadConfiguration() {
+  async function readConfiguration() {
     try {
       configuration.value = await invoke<UpdaterStatusPayload>('updater_status');
       if (!configuration.value.configured) clearPending();
     } catch (error) {
       configuration.value = undefined;
-      clearPending();
-      lastError.value = String(error);
+      processUpdaterError(String(error));
     }
   }
 
-  async function check() {
+  async function loadConfiguration() {
+    if (running || isUpdating.value) return;
+    await readConfiguration();
+  }
+
+  async function performCheck(manual: boolean) {
     clearPending();
     lastError.value = undefined;
-    await loadConfiguration();
-    if (!configuration.value?.configured || !settingsStore.settings.update.updateApp) return;
+    phase.value = 'checking';
+    await readConfiguration();
+    if (!configuration.value?.configured || (!manual && !settingsStore.settings.update.updateApp)) {
+      if (!lastError.value) phase.value = 'idle';
+      return;
+    }
     try {
       checkResult.value = await invoke<UpdaterCheckPayload>('updater_check');
+      configuration.value = checkResult.value;
       isIgnored.value = false;
+      phase.value = 'idle';
     } catch (error) {
-      clearPending();
-      lastError.value = String(error);
+      processUpdaterError(String(error));
     }
   }
 
-  async function download() {
-    isNeedingRestart.value = false;
-    lastError.value = undefined;
-    downloadProgress.value = { received: 0, total: 0 };
+  async function check(manual = false) {
+    if (running || isUpdating.value) return;
+    running = true;
+    isUpdating.value = true;
     try {
-      isUpdating.value = true;
-      await invoke('updater_download');
-      isNeedingRestart.value = true;
-    } catch (e) {
-      clearPending();
-      lastError.value = String(e);
+      await performCheck(manual);
     } finally {
+      running = false;
       isUpdating.value = false;
     }
   }
 
-  async function install() {
+  async function performDownload() {
     isNeedingRestart.value = false;
+    lastError.value = undefined;
+    downloadProgress.value = { received: 0, total: 0 };
+    phase.value = 'downloading';
+    try {
+      await invoke('updater_download');
+      if (lastError.value) return false;
+      isNeedingRestart.value = true;
+      phase.value = 'ready';
+      return true;
+    } catch (error) {
+      processUpdaterError(String(error));
+      return false;
+    }
+  }
+
+  async function download() {
+    if (running || isUpdating.value) return;
+    running = true;
+    isUpdating.value = true;
+    try {
+      await performDownload();
+    } finally {
+      running = false;
+      isUpdating.value = false;
+    }
+  }
+
+  async function performInstall() {
+    isNeedingRestart.value = false;
+    lastError.value = undefined;
+    phase.value = 'preparing-restart';
     try {
       await invoke('updater_install');
-    } catch (e) {
-      clearPending();
-      lastError.value = String(e);
+    } catch (error) {
+      processUpdaterError(String(error));
+    }
+  }
+
+  async function install() {
+    if (running || isUpdating.value || !isNeedingRestart.value) return;
+    running = true;
+    isUpdating.value = true;
+    try {
+      await performInstall();
+    } finally {
+      running = false;
+      isUpdating.value = phase.value === 'preparing-restart';
+    }
+  }
+
+  async function updateAndRestart() {
+    if (running || isUpdating.value) return;
+    running = true;
+    isUpdating.value = true;
+    isIgnored.value = false;
+    try {
+      if (!checkResult.value?.available) await performCheck(true);
+      if (!checkResult.value?.available || lastError.value) return;
+      if (await performDownload()) await performInstall();
+    } finally {
+      running = false;
+      isUpdating.value = phase.value === 'preparing-restart';
     }
   }
 
   function ignore() {
-    isIgnored.value = true;
+    if (!isUpdating.value) isIgnored.value = true;
   }
 
   function processUpdaterDownloadProgress(payload: UpdaterDownloadProgressPayload) {
+    if (phase.value !== 'downloading' && phase.value !== 'verifying') return;
     Object.assign(downloadProgress.value, payload);
+    if (payload.total && payload.received >= payload.total) phase.value = 'verifying';
   }
 
   function processUpdaterFinished() {
-    isUpdating.value = false;
-    isIgnored.value = true;
-    isNeedingRestart.value = false;
-    downloadProgress.value = { received: 0, total: 0 };
+    // Completion is not installation proof: wait for the install IPC and process exit.
+    if (phase.value !== 'preparing-restart') return;
   }
 
   function processUpdaterError(payload: string) {
-    processUpdaterFinished();
+    clearPending();
+    isIgnored.value = false;
     lastError.value = payload;
+    phase.value = 'error';
   }
 
-  return { configuration, loadConfiguration, checkResult, downloadProgress, isUpdating, isIgnored, isNeedingRestart, lastError, ignore, check, download, install, processUpdaterDownloadProgress, processUpdaterFinished, processUpdaterError };
+  return { configuration, loadConfiguration, checkResult, downloadProgress, isUpdating, isIgnored, isNeedingRestart, lastError, phase, ignore, check, download, install, updateAndRestart, processUpdaterDownloadProgress, processUpdaterFinished, processUpdaterError };
 });

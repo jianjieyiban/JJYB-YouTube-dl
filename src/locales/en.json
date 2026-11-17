@@ -48,6 +48,8 @@
       "progress": {
         "downloading": "Downloading queue - {done} of {total} completed.",
         "completed": "Download complete – {n} item downloaded. | Download complete – {n} items downloaded.",
+        "failed": "Download failed – {n} item failed. | Download failed – {n} items failed.",
+        "mixed": "Downloads finished – {succeeded} succeeded, {failed} failed.",
         "ready": "Ready to download! {n} item queued. | Ready to download! {n} items queued."
       },
       "nav": {
@@ -968,7 +970,16 @@
       "title": "Install update",
       "subtitle": "This will restart the app."
     },
-    "downloading": "Downloading update…"
+    "downloading": "Downloading update…",
+    "checking": "Checking for updates…",
+    "verifying": "Verifying signature and file hash…",
+    "preparing-restart": "Preparing to restart…",
+    "updateAndRestart": "Update and restart",
+    "check": "Check for updates",
+    "failed": "Update failed. You can retry.",
+    "upToDate": "The app is up to date.",
+    "loadingConfiguration": "Loading update configuration…",
+    "manualUpdate": "If automatic updates are unavailable, download the update from the releases page below."
   },
   "install": {
     "title": {
@@ -1165,6 +1176,10 @@
       "downloadRetryingFragment": {
         "shortMessage": "Retrying fragment",
         "message": "A fragment download failed and will be retried automatically."
+      },
+      "noSubtitles": {
+        "shortMessage": "No downloadable subtitles found, unable to download",
+        "message": "No downloadable subtitles found, unable to download"
       },
       "unknown": {
         "shortMessage": "Unknown error",

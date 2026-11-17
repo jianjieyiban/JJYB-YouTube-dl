@@ -1,3 +1,5 @@
+export type UpdaterPhase = 'idle' | 'checking' | 'downloading' | 'verifying' | 'ready' | 'preparing-restart' | 'error';
+
 export interface UpdaterStatusPayload {
   configured: boolean;
   reason: string | null;

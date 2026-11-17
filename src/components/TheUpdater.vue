@@ -10,33 +10,25 @@
         leave-to-class="translate-y-4 opacity-0"
     >
       <div
-          v-if="!isIgnored && checkResult?.available"
+          v-if="!updater.isIgnored && (updater.checkResult?.available || updater.lastError || updater.isUpdating)"
           role="alert"
           data-testid="updater-alert"
+          :aria-busy="updater.isUpdating"
           class="m-4 max-w-sm alert alert-horizontal alert-soft alert-info pointer-events-auto will-change-transform"
       >
-        <arrow-path-icon class="w-6 h-6" :class="{ 'animate-spin': isUpdating }" />
-        <template v-if="!isUpdating && !isNeedingRestart">
-          <h3 class="font-bold">{{ t('updater.available') }}</h3>
-          <button class="btn btn-sm" @click="updaterStore.ignore()">{{ t('common.later') }}</button>
-          <button class="btn btn-info btn-sm" @click="updaterStore.download()">{{ t('common.download') }}</button>
-        </template>
-        <template v-else-if="isNeedingRestart">
-          <div>
-            <h3 class="font-bold">{{ t('updater.install.title') }}</h3>
-            <p>{{ t('updater.install.subtitle') }}</p>
-          </div>
-          <button class="btn btn-sm" @click="updaterStore.ignore()">{{ t('common.later') }}</button>
-          <button class="btn btn-info btn-sm" @click="updaterStore.install()">{{ t('common.install') }}</button>
-        </template>
-        <template v-else>
-          <div class="w-full">
-            <h3 class="font-bold">{{ t('updater.downloading') }}</h3>
-            <div class="flex items-center gap-2">
-              <progress class="progress progress-info w-full" :value="progress" max="100"></progress>
-              <p>{{ t('common.percentage', { percent: progress.toFixed() }) }}</p>
-            </div>
-          </div>
+        <arrow-path-icon class="w-6 h-6" :class="{ 'animate-spin': updater.isUpdating }" />
+        <div class="w-full min-w-0">
+          <h3 class="font-bold">{{ t(updater.isUpdating ? `updater.${updater.phase}` : updater.lastError ? 'updater.failed' : 'updater.available') }}</h3>
+          <p v-if="updater.lastError" class="break-words">{{ updater.lastError }}</p>
+          <template v-if="updater.phase === 'downloading' || updater.phase === 'verifying'">
+            <progress class="progress progress-info w-full" :value="progress" max="100" :aria-label="t('updater.downloading')"></progress>
+            <p v-if="progress !== undefined">{{ t('common.percentage', { percent: progress.toFixed() }) }}</p>
+          </template>
+          <p v-if="!updater.isUpdating">{{ t('updater.install.subtitle') }}</p>
+        </div>
+        <template v-if="!updater.isUpdating">
+          <button class="btn btn-sm" @click="updater.ignore()">{{ t('common.later') }}</button>
+          <button class="btn btn-info btn-sm" @click="updater.updateAndRestart()">{{ t('updater.updateAndRestart') }}</button>
         </template>
       </div>
     </Transition>
@@ -45,21 +37,14 @@
 
 <script setup lang="ts">
 import { ArrowPathIcon } from '@heroicons/vue/24/solid';
-import { useUpdaterStore } from '../stores/updater';
 import { computed } from 'vue';
-import { storeToRefs } from 'pinia';
 import { useI18n } from 'vue-i18n';
+import { useUpdaterStore } from '../stores/updater';
 
+const updater = useUpdaterStore();
 const { t } = useI18n();
-const updaterStore = useUpdaterStore();
-const { checkResult, downloadProgress, isIgnored, isUpdating, isNeedingRestart } = storeToRefs(updaterStore);
-
 const progress = computed(() => {
-  const received = downloadProgress.value.received ?? 0;
-  const total = downloadProgress.value.total ?? 0;
-  if (total === 0 && received === 0) {
-    return 0;
-  }
-  return received / total * 100;
+  const { received, total } = updater.downloadProgress;
+  return total && total > 0 ? Math.min(100, Math.max(0, received / total * 100)) : undefined;
 });
 </script>

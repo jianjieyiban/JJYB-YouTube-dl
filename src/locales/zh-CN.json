@@ -48,6 +48,8 @@
       "progress": {
         "downloading": "正在下载队列 - 已完成 {done} / {total}。",
         "completed": "下载完成 – 已下载 {n} 个项目。 | 下载完成 – 已下载 {n} 个项目。",
+        "failed": "下载失败 – {n} 个项目失败。",
+        "mixed": "下载结束 – 成功 {succeeded} 个，失败 {failed} 个。",
         "ready": "准备就绪！已将 {n} 个项目加入队列。 | 准备就绪！已将 {n} 个项目加入队列。"
       },
       "nav": {
@@ -968,7 +970,16 @@
       "title": "安装更新",
       "subtitle": "这将重启应用。"
     },
-    "downloading": "正在下载更新…"
+    "downloading": "正在下载更新…",
+    "checking": "正在检查更新…",
+    "verifying": "正在校验签名和文件哈希…",
+    "preparing-restart": "正在准备重启…",
+    "updateAndRestart": "更新并重启",
+    "check": "检查更新",
+    "failed": "更新失败，可重试。",
+    "upToDate": "应用已是最新版本。",
+    "loadingConfiguration": "正在读取应用更新配置…",
+    "manualUpdate": "无法自动更新时，请前往下方发布页面下载并手动更新。"
   },
   "install": {
     "title": {
@@ -1165,6 +1176,10 @@
       "downloadRetryingFragment": {
         "shortMessage": "正在重试分片",
         "message": "分片下载失败，将自动重试。"
+      },
+      "noSubtitles": {
+        "shortMessage": "找不到可下载的字幕，无法下载",
+        "message": "找不到可下载的字幕，无法下载"
       },
       "unknown": {
         "shortMessage": "未知错误",

@@ -68,11 +68,11 @@ const preferencesStore = usePreferencesStore();
 initStores().catch((e) => {
   console.error(e);
 }).finally(() => {
-  void invoke('app_ready');
+  app.mount('#app');
   if (!__E2E__) {
     startWindowWatcher();
   }
-  app.mount('#app');
+  void router.isReady().then(() => invoke('app_ready'));
 });
 
 async function initStores(): Promise<void> {

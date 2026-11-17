@@ -48,6 +48,8 @@
       "progress": {
         "downloading": "正在下載佇列 - 已完成 {done} / {total}。",
         "completed": "下載完成 – 已下載 {n} 個項目。 | 下載完成 – 已下載 {n} 個項目。",
+        "failed": "下載失敗 – {n} 個項目失敗。",
+        "mixed": "下載結束 – 成功 {succeeded} 個，失敗 {failed} 個。",
         "ready": "準備就緒！已加入 {n} 個項目至佇列。 | 準備就緒！已加入 {n} 個項目至佇列。"
       },
       "nav": {
@@ -858,7 +860,16 @@
       "title": "安裝更新",
       "subtitle": "這將重新啟動應用程式。"
     },
-    "downloading": "正在下載更新…"
+    "downloading": "正在下載更新…",
+    "checking": "正在檢查更新…",
+    "verifying": "正在驗證簽章和檔案雜湊…",
+    "preparing-restart": "正在準備重新啟動…",
+    "updateAndRestart": "更新並重新啟動",
+    "check": "檢查更新",
+    "failed": "更新失敗，可重試。",
+    "upToDate": "應用程式已是最新版本。",
+    "loadingConfiguration": "正在讀取更新設定…",
+    "manualUpdate": "無法自動更新時，請前往下方發佈頁面下載並手動更新。"
   },
   "install": {
     "title": {
@@ -1051,6 +1062,10 @@
       "downloadRetryingFragment": {
         "shortMessage": "正在重試片段",
         "message": "片段下載失敗，將自動重試。"
+      },
+      "noSubtitles": {
+        "shortMessage": "找不到可下載的字幕，無法下載",
+        "message": "找不到可下載的字幕，無法下載"
       },
       "unknown": {
         "shortMessage": "未知錯誤",

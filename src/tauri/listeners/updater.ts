@@ -9,13 +9,6 @@ export function registerUpdaterListeners() {
     updaterStore.processUpdaterDownloadProgress(event.payload);
   });
 
-  void listen<void>(
-    'updater_finished',
-    () => {
-      updaterStore.processUpdaterFinished();
-    },
-  );
-
   void listen<string>(
     'updater_error',
     (event) => {

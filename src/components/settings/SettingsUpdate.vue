@@ -29,8 +29,18 @@
     />
     <p class="label">{{ t('settings.update.updateApp.hint') }}</p>
     <p v-if="!updater.configuration?.configured" class="label">
-      {{ updater.configuration?.reason ?? updater.lastError ?? '正在读取应用更新配置' }}
+      {{ updater.configuration?.reason ?? updater.lastError ?? t('updater.loadingConfiguration') }}
+      {{ t('updater.manualUpdate') }}
     </p>
+    <div v-else class="flex flex-wrap items-center gap-2">
+      <button class="btn btn-sm" :disabled="updater.isUpdating" @click="updater.check(true)">{{ t('updater.check') }}</button>
+      <button v-if="updater.checkResult?.available || updater.lastError" class="btn btn-info btn-sm" :disabled="updater.isUpdating" @click="updater.updateAndRestart()">{{ t('updater.updateAndRestart') }}</button>
+      <p role="status" aria-live="polite">
+        <template v-if="updater.isUpdating">{{ t(`updater.${updater.phase}`) }}</template>
+        <template v-else-if="updater.lastError">{{ t('updater.failed') }} {{ updater.lastError }}</template>
+        <template v-else-if="updater.checkResult && !updater.checkResult.available">{{ t('updater.upToDate') }}</template>
+      </p>
+    </div>
     <a class="link" :href="updater.configuration?.releasesUrl ?? 'https://github.com/jianjieyiban/JJYB-YouTube-dl/releases'" target="_blank" rel="noopener noreferrer">{{ updater.configuration?.releasesUrl ?? 'https://github.com/jianjieyiban/JJYB-YouTube-dl/releases' }}</a>
   </base-fieldset>
 </template>
