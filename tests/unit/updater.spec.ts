@@ -6,6 +6,9 @@ import { useUpdaterStore } from '../../src/stores/updater';
 import { useSettingsStore } from '../../src/stores/settings';
 import { defaultSettings } from '../../src/tauri/types/config';
 import SettingsUpdate from '../../src/components/settings/SettingsUpdate.vue';
+import TheUpdater from '../../src/components/TheUpdater.vue';
+
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('../../src/i18n', () => ({ getDefaultLocale: () => ('zh-CN'), i18n: { global: { locale: { value: 'zh-CN' } } } }));
@@ -23,6 +26,80 @@ beforeEach(() => {
 });
 
 describe('application updater', () => {
+  it('serializes update and restart and ignores duplicate actions and checks', async () => {
+    const store = useUpdaterStore();
+    store.checkResult = { ...configured, available: true, currentVersion: '1', availableVersion: '2' };
+    let finishDownload!: () => void;
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === 'updater_download') {
+        await new Promise<void>((resolve) => {
+          finishDownload = resolve;
+        });
+      }
+    });
+    const pending = store.updateAndRestart();
+    await store.updateAndRestart();
+    await store.check();
+    expect(store.checkResult?.available).toBe(true);
+    expect(store.isUpdating).toBe(true);
+    expect(invoke).toHaveBeenCalledTimes(1);
+    store.processUpdaterDownloadProgress({ received: 10, total: 10 });
+    expect(store.phase).toBe('verifying');
+    expect(invoke).not.toHaveBeenCalledWith('updater_install');
+    finishDownload();
+    await pending;
+    expect(vi.mocked(invoke).mock.calls.map(call => call[0])).toEqual(['updater_download', 'updater_install']);
+    expect(store.phase).toBe('preparing-restart');
+  });
+
+  it('never installs rejected bytes and retries by checking again even with automatic checks off', async () => {
+    const store = useUpdaterStore();
+    useSettingsStore().settings.update.updateApp = false;
+    store.checkResult = { ...configured, available: true, currentVersion: '1', availableVersion: '2' };
+    vi.mocked(invoke).mockRejectedValueOnce(new Error('hash rejected'));
+    await store.updateAndRestart();
+    expect(invoke).not.toHaveBeenCalledWith('updater_install');
+    expect(store.phase).toBe('error');
+    expect(store.lastError).toContain('hash rejected');
+    vi.mocked(invoke).mockResolvedValueOnce(configured)
+      .mockResolvedValueOnce({ ...configured, available: true, currentVersion: '1', availableVersion: '2' })
+      .mockResolvedValue(undefined);
+    await store.updateAndRestart();
+    expect(vi.mocked(invoke).mock.calls.map(call => call[0])).toEqual([
+      'updater_download', 'updater_status', 'updater_check', 'updater_download', 'updater_install',
+    ]);
+  });
+
+  it('does not turn a finished event into hidden success or erase an error', () => {
+    const store = useUpdaterStore();
+    store.processUpdaterError('active tasks');
+    store.processUpdaterFinished();
+    expect(store.isIgnored).toBe(false);
+    expect(store.lastError).toBe('active tasks');
+    expect(store.phase).toBe('error');
+  });
+
+  it('shows errors and a single explicit update and restart action', () => {
+    const store = useUpdaterStore();
+    store.processUpdaterError('signature rejected');
+    const wrapper = mount(TheUpdater);
+    expect(wrapper.text()).toContain('signature rejected');
+    expect(wrapper.text()).toContain('updater.updateAndRestart');
+    expect(wrapper.text()).not.toContain('common.install');
+  });
+
+  it('keeps install rejection visible and retries with a fresh check', async () => {
+    const store = useUpdaterStore();
+    store.checkResult = { ...configured, available: true, currentVersion: '1', availableVersion: '2' };
+    vi.mocked(invoke).mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('active tasks'));
+    await store.updateAndRestart();
+    expect(store.isUpdating).toBe(false);
+    expect(store.isNeedingRestart).toBe(false);
+    expect(store.phase).toBe('error');
+    expect(store.lastError).toContain('active tasks');
+    expect(store.isIgnored).toBe(false);
+  });
+
   it('loads configuration even when automatic checks are disabled', async () => {
     useSettingsStore().settings.update.updateApp = false;
     vi.mocked(invoke).mockResolvedValue({ ...configured, configured: false, reason: '未配置自有更新公钥' });

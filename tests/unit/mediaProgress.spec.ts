@@ -9,6 +9,47 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 describe('media progress store', () => {
+  it('separates successful and failed items without changing terminal progress', () => {
+    const groupStore = useMediaGroupStore();
+    const stateStore = useMediaStateStore();
+    const progressStore = useMediaProgressStore();
+    groupStore.createGroup({
+      id: 'results', url: 'results', total: 4, processed: 4, errored: 0,
+      isCombined: true, audioCodecs: [], formats: [], filesize: 0,
+      items: {
+        leader: { id: 'leader', url: 'leader', audioCodecs: [], formats: [], filesize: 0, isLeader: true },
+        success: { id: 'success', url: 'success', audioCodecs: [], formats: [], filesize: 0 },
+        failure: { id: 'failure', url: 'failure', audioCodecs: [], formats: [], filesize: 0 },
+        active: { id: 'active', url: 'active', audioCodecs: [], formats: [], filesize: 0 },
+      },
+    });
+    groupStore.createGroup({
+      id: 'single', url: 'single', total: 1, processed: 1, errored: 0,
+      isCombined: false, audioCodecs: [], formats: [], filesize: 0,
+      items: { single: { id: 'single', url: 'single', audioCodecs: [], formats: [], filesize: 0 } },
+    });
+    stateStore.setState('leader', MediaState.done);
+    stateStore.setState('success', MediaState.done);
+    stateStore.setState('failure', MediaState.error);
+    stateStore.setState('active', MediaState.downloading);
+    stateStore.setState('single', MediaState.error);
+    expect(progressStore.findGroupProgress('results')).toMatchObject({
+      done: 2, succeeded: 1, failed: 1, total: 3, downloading: 1,
+    });
+    expect(progressStore.findAllProgress()).toMatchObject({
+      done: 3, succeeded: 1, failed: 2, total: 4, downloading: 1,
+    });
+    stateStore.setState('active', MediaState.done);
+    expect(progressStore.findAllProgress()).toMatchObject({
+      done: 4, succeeded: 2, failed: 2, total: 4, downloading: 0,
+    });
+    stateStore.setState('success', MediaState.error);
+    stateStore.setState('active', MediaState.error);
+    expect(progressStore.findAllProgress()).toMatchObject({
+      done: 4, succeeded: 0, failed: 4, total: 4, downloading: 0,
+    });
+  });
+
   it('tracks ready and downloading items separately', () => {
     const groupStore = useMediaGroupStore();
     const stateStore = useMediaStateStore();

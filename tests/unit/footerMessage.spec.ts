@@ -2,10 +2,50 @@ import { describe, it, expect } from 'vitest';
 import { useMediaGroupStore } from '../../src/stores/media/group';
 import { useMediaStateStore, MediaState } from '../../src/stores/media/state';
 import TheFooter from '../../src/components/TheFooter.vue';
-import { mount } from '@vue/test-utils';
+import { mount, shallowMount } from '@vue/test-utils';
+import BaseProgress from '../../src/components/base/BaseProgress.vue';
+import en from '../../src/locales/en.json';
 import { createI18n } from 'vue-i18n';
 
 describe('TheFooter progress message', () => {
+  it.each([
+    { states: [MediaState.error, MediaState.error], message: 'Download failed – 2 items failed.', variant: 'error' },
+    { states: [MediaState.done, MediaState.error, MediaState.error], message: 'Downloads finished – 1 succeeded, 2 failed.', variant: 'warning' },
+    { states: [MediaState.done, MediaState.done], message: 'Download complete – 2 items downloaded.', variant: 'primary' },
+  ])('shows accurate terminal results for $states', ({ states, message, variant }) => {
+    const groupStore = useMediaGroupStore();
+    const stateStore = useMediaStateStore();
+    groupStore.createGroup({
+      id: 'results', url: 'results', total: states.length + 1, processed: states.length + 1,
+      errored: 0, isCombined: true, audioCodecs: [], formats: [], filesize: 0,
+      items: {
+        leader: { id: 'leader', url: 'leader', audioCodecs: [], formats: [], filesize: 0, isLeader: true },
+        ...Object.fromEntries(states.map((state, index) => {
+          const id = `item-${index}`;
+          stateStore.setState(id, state);
+          return [id, { id, url: id, audioCodecs: [], formats: [], filesize: 0 }];
+        })),
+      },
+    });
+    // A combined playlist leader must never be counted as a successful download.
+    stateStore.setState('leader', MediaState.done);
+    const wrapper = shallowMount(TheFooter, {
+      global: {
+        plugins: [createI18n({ legacy: false, locale: 'en', messages: { en } })],
+        stubs: { BaseProgress: false },
+      },
+    });
+    const progress = wrapper.findComponent(BaseProgress);
+    expect(progress.text()).toBe(message);
+    expect(progress.props('variant')).toBe(variant);
+    expect(progress.props('value')).toBe(states.length);
+    expect(progress.props('max')).toBe(states.length);
+    if (states.includes(MediaState.error)) {
+      expect(progress.text()).not.toContain('Download complete');
+      expect(progress.find('progress').classes()).not.toContain('progress-primary');
+    }
+  });
+
   it('shows ready items count excluding completed items', () => {
     const groupStore = useMediaGroupStore();
     const stateStore = useMediaStateStore();

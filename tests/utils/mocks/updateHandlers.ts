@@ -8,6 +8,10 @@ export type UpdaterMockData = {
   available?: boolean;
   currentVersion?: string;
   availableVersion?: string;
+  downloadError?: string;
+  installError?: string;
+  downloadCalls?: number;
+  installCalls?: number;
 };
 
 export const updateHandlers: Record<string, IPCHandler> = {
@@ -27,8 +31,10 @@ export const updateHandlers: Record<string, IPCHandler> = {
     };
   },
   updater_download: async (): Promise<void> => {
-    if (window.E2E.updater?.available) {
-      return new Promise((resolve): void => {
+    const updater = window.E2E.updater;
+    if (updater) updater.downloadCalls = (updater.downloadCalls ?? 0) + 1;
+    if (updater?.available) {
+      return new Promise((resolve, reject): void => {
         setTimeout((): void => {
           void emit<UpdaterDownloadProgressPayload>('updater_download_progress', {
             received: 1024 * 1024 * 5,
@@ -41,13 +47,18 @@ export const updateHandlers: Record<string, IPCHandler> = {
             total: 1024 * 1024 * 10,
           });
         }, 2000);
-        setTimeout(resolve, 3000);
+        setTimeout((): void => {
+          if (updater.downloadError) reject(updater.downloadError);
+          else resolve();
+        }, 3000);
       });
     } else {
       return Promise.resolve();
     }
   },
   updater_install: (): void => {
-    void emit<void>('updater_finished');
+    const updater = window.E2E.updater;
+    if (updater) updater.installCalls = (updater.installCalls ?? 0) + 1;
+    if (updater?.installError) throw updater.installError;
   },
 };
