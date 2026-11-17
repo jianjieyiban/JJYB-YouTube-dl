@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">JJYB</title>
+  <desc id="desc">原创几何 JJYB 字母与向下下载箭头，深蓝底、白色字母和青绿下载托盘。</desc>
+  <rect x="16" y="16" width="480" height="480" rx="104" fill="#101e35"/>
+  <g fill="none" stroke="#f5f8ff" stroke-width="24" stroke-linejoin="round">
+    <polyline points="68,146 124,146 124,258 108,276 84,276 68,260 68,244"/>
+    <polyline points="158,146 214,146 214,258 198,276 174,276 158,260 158,244"/>
+    <polyline points="248,146 278,192 308,146"/>
+    <line x1="278" y1="192" x2="278" y2="276"/>
+    <polyline points="346,276 346,146 398,146 422,166 422,192 400,210 346,210"/>
+    <polyline points="400,210 430,230 430,254 408,276 346,276"/>
+  </g>
+  <g fill="none" stroke="#39dec2" stroke-width="24" stroke-linejoin="round">
+    <line x1="256" y1="316" x2="256" y2="384"/>
+    <polyline points="220,354 256,390 292,354"/>
+    <polyline points="146,374 146,426 366,426 366,374"/>
+  </g>
+</svg>

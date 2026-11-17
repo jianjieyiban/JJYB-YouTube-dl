@@ -15,7 +15,6 @@
         </a>
       </div>
       <p>{{ t('about.credit') }}</p>
-      <a href="https://github.com/jely2002/youtube-dl-gui" class="link" target="_blank" rel="noopener">{{ upstreamProject }}</a>
       <div class="flex gap-2 items-center">
         <p>{{ t('about.poweredBy') }}</p>
         <button type="button" @click="openLicenses()" class="btn btn-soft btn-xs">
@@ -37,7 +36,6 @@ defineOptions({
 });
 
 const { t } = useI18n();
-const upstreamProject = 'jely2002/youtube-dl-gui';
 const { openInternalPath } = useOpener();
 const appVersion = typeof __APP_VERSION__ === 'undefined' ? '' : __APP_VERSION__;
 
