@@ -39,6 +39,17 @@ test('production builds embed frontend assets and reject missing custom protocol
   assert.match(main, /compile_error!/);
 });
 
+test('Rust CI builds both embedded frontends before compilation', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/rust-ci.yml', import.meta.url), 'utf8');
+  const jobs = workflow.split(/^  (?:lint|unit-tests):/m).slice(1);
+  assert.equal(jobs.length, 2);
+  for (const job of jobs) {
+    const build = job.search(/npm run build\r?\n/);
+    const compile = job.search(/cargo (?:clippy|llvm-cov) --manifest-path/);
+    assert.ok(build >= 0 && build < compile, 'Rust CI must build the main and isolation assets before compiling');
+  }
+});
+
 test('normal startup without an update does not apply updater-only path restrictions', async () => {
   const source = await readFile(new URL('../src-tauri/src/portable_transaction.rs', import.meta.url), 'utf8');
   const startup = source.slice(source.lastIndexOf('pub fn startup()'));

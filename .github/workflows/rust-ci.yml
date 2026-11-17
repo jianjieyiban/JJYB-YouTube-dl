@@ -35,10 +35,10 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Build isolation frontend
+      - name: Build embedded frontend assets
         run: |
           npm ci
-          npm run build:isolation
+          npm run build
 
       - name: Install system dependencies for Tauri
         uses: ./.github/actions/install-tauri-deps
@@ -89,10 +89,10 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Build isolation frontend
+      - name: Build embedded frontend assets
         run: |
           npm ci
-          npm run build:isolation
+          npm run build
 
       - name: Install system dependencies for Tauri
         uses: ./.github/actions/install-tauri-deps
