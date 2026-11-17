@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdtemp, writeFile, rm, mkdir, copyFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, mkdir, copyFile, readFile } from 'node:fs/promises';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -29,6 +29,34 @@ function executable() {
   return bytes;
 }
 const date = '2026-11-17T00:00:00.000Z';
+
+test('production builds embed frontend assets and reject missing custom protocol', async () => {
+  const cargo = await readFile(new URL('../src-tauri/Cargo.toml', import.meta.url), 'utf8');
+  assert.match(cargo, /\[features\][\s\S]*?default\s*=\s*\["custom-protocol"\]/);
+  assert.match(cargo, /custom-protocol\s*=\s*\["tauri\/custom-protocol"\]/);
+  const main = await readFile(new URL('../src-tauri/src/main.rs', import.meta.url), 'utf8');
+  assert.match(main, /#\[cfg\(all\(not\(debug_assertions\), not\(feature = "custom-protocol"\)\)\)\]/);
+  assert.match(main, /compile_error!/);
+});
+
+test('normal startup without an update does not apply updater-only path restrictions', async () => {
+  const source = await readFile(new URL('../src-tauri/src/portable_transaction.rs', import.meta.url), 'utf8');
+  const startup = source.slice(source.lastIndexOf('pub fn startup()'));
+  assert.ok(startup.indexOf('if !has_transaction') < startup.lastIndexOf('guard_path(&target)'), 'Ordinary startup is blocked by updater path guards');
+  assert.ok(startup.indexOf('if args.first().is_some_and(|s| s == CHILD)') < startup.indexOf('guard_path(&target)'), 'Child handshake must retain its path guard');
+});
+
+test('update readiness is confirmed only after showing the normal window', async () => {
+  const source = await readFile(new URL('../src-tauri/src/commands/app_ready.rs', import.meta.url), 'utf8');
+  assert.ok(source.indexOf('.show()') < source.indexOf('confirm_ready()'), 'Update is acknowledged before window display succeeds');
+});
+
+test('isolation permits the tool update commands used by the frontend', async () => {
+  const isolation = await readFile(new URL('../src-isolation/main.ts', import.meta.url), 'utf8');
+  for (const command of ['binaries_check_updates', 'binaries_update']) {
+    assert.ok(isolation.includes(`'${command}'`), `Isolation blocks ${command}`);
+  }
+});
 
 test('release preflight accepts the shared updater trust root and rejects a foreign key', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'jjyb-preflight-test-'));

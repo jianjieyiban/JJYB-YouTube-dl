@@ -631,9 +631,9 @@ mod windows {
       return Ok(true);
     }
     let target = std::env::current_exe().map_err(err)?;
-    let (_guards, _) = guard_path(&target)?;
     let parent = target.parent().ok_or("Missing executable directory")?;
     if args.first().is_some_and(|s| s == CHILD) {
+      let (_guards, _) = guard_path(&target)?;
       if args.len() != 3 {
         return Err("Invalid update child arguments".into());
       }
@@ -661,6 +661,7 @@ mod windows {
     if !has_transaction {
       return Ok(false);
     }
+    let (_guards, _) = guard_path(&target)?;
     let lock = match lock(parent) {
       Ok(lock) => lock,
       // An active helper owns recovery. Do not let a manually launched instance

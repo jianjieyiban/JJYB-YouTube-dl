@@ -33,6 +33,12 @@ Linux requires platform libraries such as `glib-2.0`; report missing prerequisit
 - Preserve current user settings, downloads, required tools, vendor sources and licenses during cleanup. Delete only inspected obsolete/test artifacts; never publish Cookie files, runtime profiles, caches or logs.
 - Keep the upstream attribution and known HTTP 429 / unsigned updater limitations visible. Do not claim external-site or signed-upgrade acceptance without evidence.
 
+## Temporary files and production startup
+- Never create temporary files at drive roots such as `C:\tmp` or `D:\tmp`. Use a named subdirectory of the operating system temporary directory for short-lived staging and remove it after use. Keep build caches in the configured development/cache locations; preserve signing keys and user profiles.
+- The libsodium dependency falls back to `/tmp/LATEST` when its source-build path contains spaces. Use an existing verified MSVC library via `SODIUM_LIB_DIR`, or a non-root, space-free build/cache path when a source rebuild is required. Do not silently leave fallback directories behind.
+- Production builds must enable `custom-protocol` and embed frontend assets. Verify native startup with the development server stopped; keep the compile-time guard and release regression tests.
+- Ordinary startup must not require an update transaction; only update child processes validate transaction paths and readiness. Keep isolation IPC permissions synchronized with settings commands.
+
 ## Searching
 Use `rg` for searching the codebase; avoid recursive `grep` or `ls` commands.
 
