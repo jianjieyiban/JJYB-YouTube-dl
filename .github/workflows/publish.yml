@@ -8,6 +8,7 @@ on:
 
 jobs:
   publish-tauri:
+    if: vars.JJYB_ENABLE_LEGACY_MULTIPLATFORM_PUBLISH == 'true'
     permissions:
       contents: write
     env:

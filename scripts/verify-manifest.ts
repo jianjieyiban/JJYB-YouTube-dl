@@ -1,30 +1,23 @@
-import { readFile } from 'fs/promises';
-import { createPublicKey, verify } from 'crypto';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { verifyBytes } from './release-signing.ts';
 
 async function main() {
-  console.log('[verify-manifest] Verifying manifest signature');
-  const manifestBytes = await readFile('docs/manifest/manifest.json');
-  const sigB64 = await readFile('docs/manifest/manifest.sig', 'utf8');
-  const pubHex = process.env.ED25519_PUB_KEY_HEX;
-  if (!pubHex) throw new Error('ED25519_PUB_KEY_HEX missing');
-  console.log('[verify-manifest] Loaded public key from environment');
-  const pubRaw = Buffer.from(pubHex, 'hex');
-  const pubB64Url = pubRaw.toString('base64url');
-
-  const jwk = {
-    kty: 'OKP',
-    crv: 'Ed25519',
-    x: pubB64Url,
-  };
-
-  const key = createPublicKey({ key: jwk, format: 'jwk' });
-  const sig = Buffer.from(sigB64, 'base64');
-  const ok = verify(null, manifestBytes, key, sig);
-  if (!ok) throw new Error('invalid signature');
-  console.log('[verify-manifest] Signature is valid');
+  const directory = process.argv[2] || 'docs/manifest';
+  const bytes = await readFile(join(directory, 'manifest.json'));
+  verifyBytes(bytes, await readFile(join(directory, 'manifest.sig'), 'utf8'), process.env.JJYB_TOOLS_PUBLIC_KEY_HEX);
+  const manifest = JSON.parse(bytes.toString('utf8'));
+  for (const name of ['yt-dlp', 'ffmpeg', 'ffprobe', 'deno', 'AtomicParsley']) {
+    const tool = manifest.tools?.[name];
+    if (!tool?.version || !tool.files?.['windows-x86_64']) throw new Error(`Missing required tool ${name}`);
+    for (const file of Object.values(tool.files) as { url: string; sha256: string }[]) {
+      if (!/^[a-f0-9]{64}$/i.test(file.sha256) || new URL(file.url).protocol !== 'https:') throw new Error(`Invalid tool artifact ${name}`);
+    }
+  }
+  console.log('Tools manifest signature and required sources verified');
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
+main().catch((error) => {
+  console.error(error.message);
+  process.exitCode = 1;
 });

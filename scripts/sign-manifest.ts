@@ -1,22 +1,14 @@
-import { readFile, writeFile } from 'fs/promises';
-import { createPrivateKey, sign } from 'crypto';
+import { readFile, writeFile } from 'node:fs/promises';
+import { signBytes } from './release-signing.ts';
 
 async function main() {
-  console.log('[sign-manifest] Signing manifest');
-  const manifestPath = 'docs/manifest/manifest.json';
-  const privB64 = process.env.ED25519_PRIV_KEY_B64;
-  if (!privB64) throw new Error('ED25519_PRIV_KEY_B64 missing');
-  console.log('[sign-manifest] Loaded signing key from environment');
-  const key = createPrivateKey({ key: Buffer.from(privB64, 'base64'), format: 'der', type: 'pkcs8' });
-  const manifestBytes = await readFile(manifestPath);
-  console.log(`[sign-manifest] Read manifest bytes from ${manifestPath}`);
-  const signature = sign(null, manifestBytes, key).toString('base64');
-  const signaturePath = 'docs/manifest/manifest.sig';
-  await writeFile(signaturePath, signature);
-  console.log(`[sign-manifest] Wrote signature to ${signaturePath}`);
+  const bytes = await readFile('docs/manifest/manifest.json');
+  const signature = signBytes(bytes, process.env.JJYB_TOOLS_PRIVATE_KEY_B64, process.env.JJYB_TOOLS_PUBLIC_KEY_HEX);
+  await writeFile('docs/manifest/manifest.sig', signature);
+  console.log('Tools manifest signed and key pair verified');
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
+main().catch((error) => {
+  console.error(error.message);
+  process.exitCode = 1;
 });

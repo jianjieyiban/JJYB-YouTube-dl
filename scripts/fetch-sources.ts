@@ -259,7 +259,9 @@ async function main() {
   console.log(`[fetch-sources] App dir: ${APP_DIR}`);
   console.log(`[fetch-sources] Bin root: ${BIN_ROOT}\n`);
 
-  const manifest = await generateManifest();
+  const manifest = process.env.JJYB_TOOLS_MANIFEST_PATH
+    ? JSON.parse(await fsp.readFile(process.env.JJYB_TOOLS_MANIFEST_PATH, 'utf8')) as Manifest
+    : await generateManifest();
 
   for (const [toolName, tool] of Object.entries(manifest.tools)) {
     await processTool(toolName, tool, platformKey);

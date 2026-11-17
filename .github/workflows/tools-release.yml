@@ -1,0 +1,49 @@
+name: JJYB signed stable tools manifest
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jjyb-signed-release
+  cancel-in-progress: false
+
+jobs:
+  tools:
+    if: github.repository == 'jianjieyiban/JJYB-YouTube-dl'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      JJYB_TOOLS_PUBLIC_KEY_HEX: ${{ secrets.JJYB_TOOLS_PUBLIC_KEY_HEX }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - name: Test release protocol
+        run: node --test scripts/release.test.ts
+      - name: Generate manifest from official tool sources
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/gen-manifest.ts
+      - name: Sign and verify with independent JJYB tools identity
+        env:
+          JJYB_TOOLS_PRIVATE_KEY_B64: ${{ secrets.JJYB_TOOLS_PRIVATE_KEY_B64 }}
+        run: |
+          node scripts/sign-manifest.ts
+          node scripts/verify-manifest.ts
+      - name: Stage exact tool release assets
+        run: |
+          mkdir release-assets
+          cp docs/manifest/manifest.json docs/manifest/manifest.sig release-assets/
+          node scripts/release-assets.ts generate release-assets
+          printf '%s\n' 'Signed JJYB tool manifest from official vendor sources. Independent tools-stable channel; not an application update.' > "$RUNNER_TEMP/jjyb-tools-notes.txt"
+      - name: Upload draft, download and verify, then publish without latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/publish-release.ts tools release-assets "$RUNNER_TEMP/jjyb-tools-notes.txt"

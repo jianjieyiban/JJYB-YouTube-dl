@@ -53,13 +53,14 @@ jobs:
         working-directory: release
         run: npm run manifest:sign
         env:
-          ED25519_PRIV_KEY_B64: ${{ secrets.ED25519_PRIV_KEY_B64 }}
+          JJYB_TOOLS_PRIVATE_KEY_B64: ${{ secrets.JJYB_TOOLS_PRIVATE_KEY_B64 }}
+          JJYB_TOOLS_PUBLIC_KEY_HEX: ${{ secrets.JJYB_TOOLS_PUBLIC_KEY_HEX }}
 
       - name: Verify manifest
         working-directory: release
         run: npm run manifest:verify
         env:
-          ED25519_PUB_KEY_HEX: ${{ secrets.ED25519_PUB_KEY_HEX }}
+          JJYB_TOOLS_PUBLIC_KEY_HEX: ${{ secrets.JJYB_TOOLS_PUBLIC_KEY_HEX }}
 
       - name: Copy manifest into main/docs
         run: |

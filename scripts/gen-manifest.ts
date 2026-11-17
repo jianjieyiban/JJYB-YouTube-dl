@@ -1,5 +1,7 @@
 import { writeFile, mkdir, readFile } from 'fs/promises';
 import { createHash } from 'crypto';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { canonicalize } from './canonicalize.ts';
 import { fetchSources } from './sources.ts';
 
@@ -151,7 +153,9 @@ export async function main(): Promise<Manifest> {
   return manifest;
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

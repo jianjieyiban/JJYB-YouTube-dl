@@ -17,9 +17,11 @@ use tauri::{AppHandle, Emitter, Error, Manager, Wry};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
-const MANIFEST_URL: &str = "https://jely2002.github.io/youtube-dl-gui/manifest/manifest.json";
-const MANIFEST_SIG_URL: &str = "https://jely2002.github.io/youtube-dl-gui/manifest/manifest.sig";
-const MANIFEST_PUB_KEY: &str = "ae7988a00d92349e55ff560369e7ec6afdb4b22a7e1dbe62a6769e1f347fa073";
+const MANIFEST_URL: &str =
+  "https://github.com/jianjieyiban/JJYB-YouTube-dl/releases/download/tools-stable/manifest.json";
+const MANIFEST_SIG_URL: &str =
+  "https://github.com/jianjieyiban/JJYB-YouTube-dl/releases/download/tools-stable/manifest.sig";
+const MANIFEST_PUB_KEY: &str = "802329cd0c716b47457f6c9b7e9836cd353b9de25d6ca65c78d87ff324bd2a7a";
 
 type AnyError = Box<dyn std::error::Error + Send + Sync + 'static>;
 

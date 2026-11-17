@@ -59,10 +59,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-target-
 
-      - name: Set up Rust toolchain (1.94.1 + Clippy)
+      - name: Set up Rust toolchain (1.100.0 + Clippy)
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # rust-toolchain action
         with:
-          toolchain: 1.94.1
+          toolchain: 1.100.0
           components: clippy,rustfmt
 
       - name: Run clippy
@@ -113,10 +113,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-target-
 
-      - name: Set up Rust toolchain (1.94.1 + LLVM tools)
+      - name: Set up Rust toolchain (1.100.0 + LLVM tools)
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # rust-toolchain action
         with:
-          toolchain: 1.94.1
+          toolchain: 1.100.0
           components: llvm-tools-preview
 
       - name: Install cargo-llvm-cov

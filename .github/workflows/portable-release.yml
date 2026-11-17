@@ -1,0 +1,88 @@
+name: JJYB Windows x64 portable release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing stable version tag (for example v3.4.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jjyb-signed-release
+  cancel-in-progress: false
+
+jobs:
+  portable:
+    if: github.repository == 'jianjieyiban/JJYB-YouTube-dl'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      JJYB_UPDATE_PUBLIC_KEY_HEX: ${{ secrets.JJYB_UPDATE_PUBLIC_KEY_HEX }}
+      JJYB_TOOLS_PUBLIC_KEY_HEX: ${{ secrets.JJYB_TOOLS_PUBLIC_KEY_HEX }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Validate tag, version and signing identities
+        shell: pwsh
+        env:
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
+          JJYB_UPDATE_PRIVATE_KEY_B64: ${{ secrets.JJYB_UPDATE_PRIVATE_KEY_B64 }}
+          JJYB_TOOLS_PRIVATE_KEY_B64: ${{ secrets.JJYB_TOOLS_PRIVATE_KEY_B64 }}
+        run: |
+          node scripts/release-preflight.ts
+          if ($LASTEXITCODE -ne 0) { throw 'Release preflight failed' }
+      - name: Test release protocol
+        run: node --test scripts/release.test.ts
+      - name: Install dependencies
+        run: npm ci
+      - name: Download and verify stable signed tool manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download tools-stable --repo jianjieyiban/JJYB-YouTube-dl --pattern manifest.json --pattern manifest.sig --dir docs/manifest --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Tools manifest download failed' }
+          node scripts/verify-manifest.ts
+          if ($LASTEXITCODE -ne 0) { throw 'Tools manifest verification failed' }
+      - name: Fetch official tool artifacts with SHA256 verification
+        env:
+          JJYB_TOOLS_MANIFEST_PATH: docs/manifest/manifest.json
+        run: node scripts/fetch-sources.ts
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.94.1
+          targets: x86_64-pc-windows-msvc
+      - name: Build executable only (no installers or platform certificates)
+        run: npm run tauri -- build --no-bundle --target x86_64-pc-windows-msvc
+      - name: Package clean portable and corresponding sources
+        shell: pwsh
+        run: ./scripts/package-portable.ps1 -Executable src-tauri/target/x86_64-pc-windows-msvc/release/jjyb-youtube-dl.exe -OutputDirectory release-assets
+      - name: Generate and verify signed portable manifest
+        shell: pwsh
+        env:
+          JJYB_UPDATE_PRIVATE_KEY_B64: ${{ secrets.JJYB_UPDATE_PRIVATE_KEY_B64 }}
+        run: |
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          $notes = Join-Path $env:RUNNER_TEMP 'jjyb-release-notes.txt'
+          Set-Content -LiteralPath $notes -Value "JJYB-YouTube-dl $version Windows x64 portable. See README and bundled docs for migration, usage and licenses. Update signatures are not Windows Authenticode signatures." -Encoding utf8
+          node scripts/portable-manifest.ts generate "release-assets/JJYB-YouTube-dl_${version}_x64.exe" release-assets $notes
+          if ($LASTEXITCODE -ne 0) { throw 'Portable manifest generation failed' }
+          node scripts/release-assets.ts generate release-assets
+          if ($LASTEXITCODE -ne 0) { throw 'Asset checksums failed' }
+      - name: Upload draft, download every asset, verify, then publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/publish-release.ts portable release-assets "${{ runner.temp }}/jjyb-release-notes.txt"
