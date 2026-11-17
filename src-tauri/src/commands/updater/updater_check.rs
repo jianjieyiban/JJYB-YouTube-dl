@@ -5,8 +5,9 @@ use tauri::Manager;
 use tauri::{AppHandle, State};
 use tokio::sync::Mutex;
 
-pub const UPDATE_ENDPOINT: &str =
-  "https://github.com/jianjieyiban/JJYB-YouTube-dl/releases/latest/download/portable-latest.json";
+pub const OWNER: &str = "jianjieyiban";
+pub const REPO: &str = "JJYB-YouTube-dl";
+pub const API_LATEST: &str = "https://api.github.com/repos/jianjieyiban/JJYB-YouTube-dl/releases/latest";
 pub const RELEASES_URL: &str = "https://github.com/jianjieyiban/JJYB-YouTube-dl/releases";
 pub use crate::portable_transaction::UPDATE_PUBLIC_KEY;
 
@@ -41,6 +42,15 @@ fn trusted_update_redirect(url: &url::Url) -> bool {
     && matches!(url.host_str(), Some("github.com" | "release-assets.githubusercontent.com" | "objects.githubusercontent.com"))
 }
 
+fn trusted_api_request(url: &url::Url) -> bool {
+  url.scheme() == "https"
+    && url.username().is_empty()
+    && url.password().is_none()
+    && url.port_or_known_default() == Some(443)
+    && url.host_str() == Some("api.github.com")
+    && url.path().starts_with(&format!("/repos/{OWNER}/{REPO}/"))
+}
+
 pub fn update_client() -> Result<reqwest::Client, String> {
   reqwest::Client::builder()
     .user_agent("JJYB-YouTube-dl-Updater")
@@ -51,7 +61,7 @@ pub fn update_client() -> Result<reqwest::Client, String> {
       if attempt.previous().len() >= 5 {
         return attempt.error("Too many update redirects");
       }
-      if trusted_update_redirect(url) {
+      if trusted_update_redirect(url) || trusted_api_request(url) {
         attempt.follow()
       } else {
         attempt.error("Untrusted update redirect")
@@ -84,6 +94,35 @@ pub async fn bounded_download(
     bytes.extend_from_slice(&chunk);
   }
   Ok(bytes)
+}
+
+#[derive(serde::Deserialize)]
+struct GhAsset {
+  #[serde(rename = "browser_download_url")]
+  download_url: String,
+  name: String,
+}
+
+#[derive(serde::Deserialize)]
+struct GhLatest {
+  tag_name: String,
+  draft: bool,
+  prerelease: bool,
+  assets: Vec<GhAsset>,
+}
+
+fn find_asset_url(latest: &GhLatest, name: &str) -> Result<String, String> {
+  if latest.draft || latest.prerelease {
+    return Err("最新 Release 不是公开稳定版".into());
+  }
+  let mut found: Option<String> = None;
+  for asset in &latest.assets {
+    if asset.name == name {
+      found = Some(asset.download_url.clone());
+      break;
+    }
+  }
+  found.ok_or_else(|| format!("最新 Release ({}) 缺少资产 {name}", latest.tag_name))
 }
 
 #[derive(serde::Serialize)]
@@ -121,10 +160,22 @@ pub async fn updater_check(
   let current = app.package_info().version.to_string();
   if status.configured {
     let client = update_client()?;
-    let raw = bounded_download(&client, UPDATE_ENDPOINT, 128 * 1024).await?;
-    let sig = bounded_download(&client, &format!("{UPDATE_ENDPOINT}.sig"), 1024).await?;
+    let api_raw = bounded_download(&client, API_LATEST, 64 * 1024).await?;
+    let latest: GhLatest =
+      serde_json::from_slice(&api_raw).map_err(|e| format!("无效 GitHub API 响应: {e}"))?;
+    let manifest_url = find_asset_url(&latest, "portable-latest.json")?;
+    let sig_url = find_asset_url(&latest, "portable-latest.json.sig")?;
+    // 额外安全：URL 必须是自有仓库 tag 路径
+    let expected_prefix = format!(
+      "https://github.com/{OWNER}/{REPO}/releases/download/{}/",
+      latest.tag_name
+    );
+    if !manifest_url.starts_with(&expected_prefix) || !sig_url.starts_with(&expected_prefix) {
+      return Err("更新资产 URL 不在可信 tag 路径下".into());
+    }
+    let raw = bounded_download(&client, &manifest_url, 128 * 1024).await?;
+    let sig = bounded_download(&client, &sig_url, 1024).await?;
     let sig = String::from_utf8(sig).map_err(|_| "无效更新签名编码")?;
-    // A current-version manifest still requires signature and identity verification.
     let manifest: PortableManifest = verify_manifest(&raw, sig.trim(), UPDATE_PUBLIC_KEY, "0.0.0")?;
     let offered = semver::Version::parse(&manifest.version).map_err(|e| e.to_string())?;
     let current_version = semver::Version::parse(&current).map_err(|e| e.to_string())?;
@@ -144,6 +195,26 @@ pub async fn updater_check(
 
 #[cfg(test)]
 mod tests {
+  use super::*;
+
+  #[test]
+  fn trusted_api_allows_only_own_repo_releases() {
+    for url in [
+      "https://api.github.com/repos/jianjieyiban/JJYB-YouTube-dl/releases/latest",
+      "https://api.github.com/repos/jianjieyiban/JJYB-YouTube-dl/releases/tags/v3.4.0",
+    ] {
+      assert!(super::trusted_api_request(&url.parse().unwrap()));
+    }
+    for url in [
+      "https://api.github.com/repos/other/repo/releases/latest",
+      "http://api.github.com/repos/jianjieyiban/JJYB-YouTube-dl/releases/latest",
+      "https://api.github.com/repos/jely2002/youtube-dl-gui/releases/latest",
+      "https://api.evil.com/repos/jianjieyiban/JJYB-YouTube-dl/releases/latest",
+    ] {
+      assert!(!super::trusted_api_request(&url.parse().unwrap()));
+    }
+  }
+
   #[test]
   fn update_redirects_allow_only_github_https_assets() {
     for url in [
@@ -163,6 +234,27 @@ mod tests {
     ] {
       assert!(!super::trusted_update_redirect(&url.parse().unwrap()));
     }
+  }
+
+  #[test]
+  fn find_asset_url_rejects_draft_and_missing() {
+    let mut latest = GhLatest {
+      tag_name: "v3.4.0".into(),
+      draft: true,
+      prerelease: false,
+      assets: vec![],
+    };
+    assert!(super::find_asset_url(&latest, "portable-latest.json").is_err());
+    latest.draft = false;
+    latest.assets = vec![GhAsset {
+      name: "portable-latest.json".into(),
+      download_url: "https://github.com/x".into(),
+    }];
+    assert_eq!(
+      super::find_asset_url(&latest, "portable-latest.json").unwrap(),
+      "https://github.com/x"
+    );
+    assert!(super::find_asset_url(&latest, "missing.json").is_err());
   }
 
   #[test]
