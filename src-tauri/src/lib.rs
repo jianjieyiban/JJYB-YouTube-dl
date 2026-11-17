@@ -6,6 +6,8 @@ mod menu;
 mod models;
 mod parsers;
 mod paths;
+pub mod portable_transaction;
+pub mod portable_update;
 mod runners;
 mod scheduling;
 mod state;

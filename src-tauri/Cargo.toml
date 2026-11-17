@@ -1,10 +1,10 @@
 [package]
 name = "jjyb-youtube-dl"
 repository = "https://github.com/jianjieyiban/JJYB-YouTube-dl"
-version = "3.3.1"
-description = "Download videos from all over the web."
+version = "3.4.0"
+description = "JJYB 视频下载器，支持多站点视频与音频下载。"
 license = "AGPL-3.0-or-later"
-authors = ["Jelle Glebbeek", "jianjieyiban (modified version)"]
+authors = ["jianjieyiban"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -38,7 +38,9 @@ tauri-plugin-updater = "2"
 arc-swap = "1.8.1"
 tokio = { version = "1.52", features = ["full"] }
 reqwest = { version = "0.13", features = ["json"] }
+url = "2"
 sha2 = "0.11"
+semver = "1"
 ed25519-dalek = { version = "2", features = ["std"] }
 base64 = "0.22.1"
 hex = "0.4"
@@ -70,7 +72,7 @@ tauri = { version = "2.11.1", features = ["test"] }
 libc = "0.2.176"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Storage_FileSystem"] }
 
 [patch.crates-io]
 stronghold-runtime = { path = "vendor/stronghold-runtime" }

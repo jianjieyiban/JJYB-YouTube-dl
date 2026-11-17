@@ -35,6 +35,10 @@ impl<T: JsonBackedState> JsonStoreHandle<T> {
     })
   }
 
+  pub fn flush(&self) -> Result<(), tauri_plugin_store::Error> {
+    self.store.save()
+  }
+
   #[inline]
   pub fn load(&self) -> Arc<T> {
     self.swap.load_full()

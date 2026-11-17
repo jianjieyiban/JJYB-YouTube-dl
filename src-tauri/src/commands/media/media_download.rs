@@ -9,7 +9,11 @@ pub fn media_download(
   group_id: String,
   items: Vec<DownloadItem>,
   pipeline: State<'_, DownloadSender>,
-) -> String {
+  updater: State<'_, tokio::sync::Mutex<crate::commands::UpdateStore>>,
+) -> Result<String, String> {
+  let _update_guard = updater
+    .try_lock()
+    .map_err(|_| "应用更新正在进行，请稍后添加下载")?;
   ensure_group_running(&group_id);
 
   pipeline
@@ -20,5 +24,5 @@ pub fn media_download(
     }))
     .unwrap();
 
-  group_id
+  Ok(group_id)
 }

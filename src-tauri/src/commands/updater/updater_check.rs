@@ -1,11 +1,14 @@
 use super::UpdateStore;
+use crate::portable_update::{verify_manifest, PortableManifest};
+#[cfg(all(windows, target_arch = "x86_64"))]
+use tauri::Manager;
 use tauri::{AppHandle, State};
-use tauri_plugin_updater::{Result, UpdaterExt};
 use tokio::sync::Mutex;
 
 pub const UPDATE_ENDPOINT: &str =
-  "https://github.com/jianjieyiban/JJYB-YouTube-dl/releases/latest/download/latest.json";
+  "https://github.com/jianjieyiban/JJYB-YouTube-dl/releases/latest/download/portable-latest.json";
 pub const RELEASES_URL: &str = "https://github.com/jianjieyiban/JJYB-YouTube-dl/releases";
+pub use crate::portable_transaction::UPDATE_PUBLIC_KEY;
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,25 +18,72 @@ pub struct UpdaterStatus {
   pub releases_url: &'static str,
 }
 
-fn status_for_key(key: &str) -> UpdaterStatus {
-  let configured = !key.trim().is_empty();
+pub fn configuration(app: &AppHandle) -> UpdaterStatus {
+  #[cfg(all(windows, target_arch = "x86_64"))]
+  let supported = app.state::<crate::paths::PathsManager>().is_portable_app();
+  #[cfg(not(all(windows, target_arch = "x86_64")))]
+  let supported = {
+    let _ = app;
+    false
+  };
   UpdaterStatus {
-    configured,
-    reason: (!configured).then(|| "未配置自有更新公钥，应用自动更新已禁用".into()),
+    configured: supported,
+    reason: (!supported).then(|| "一键更新仅支持 Windows x64 便携版，请从自有仓库手动下载".into()),
     releases_url: RELEASES_URL,
   }
 }
 
-pub fn configuration(app: &AppHandle) -> UpdaterStatus {
-  let key = app
-    .config()
-    .plugins
-    .0
-    .get("updater")
-    .and_then(|value| value.get("pubkey"))
-    .and_then(|value| value.as_str())
-    .unwrap_or_default();
-  status_for_key(key)
+fn trusted_update_redirect(url: &url::Url) -> bool {
+  url.scheme() == "https"
+    && url.username().is_empty()
+    && url.password().is_none()
+    && url.port_or_known_default() == Some(443)
+    && matches!(url.host_str(), Some("github.com" | "release-assets.githubusercontent.com" | "objects.githubusercontent.com"))
+}
+
+pub fn update_client() -> Result<reqwest::Client, String> {
+  reqwest::Client::builder()
+    .user_agent("JJYB-YouTube-dl-Updater")
+    .connect_timeout(std::time::Duration::from_secs(15))
+    .timeout(std::time::Duration::from_secs(300))
+    .redirect(reqwest::redirect::Policy::custom(|attempt| {
+      let url = attempt.url();
+      if attempt.previous().len() >= 5 {
+        return attempt.error("Too many update redirects");
+      }
+      if trusted_update_redirect(url) {
+        attempt.follow()
+      } else {
+        attempt.error("Untrusted update redirect")
+      }
+    }))
+    .build()
+    .map_err(|e| e.to_string())
+}
+
+pub async fn bounded_download(
+  client: &reqwest::Client,
+  url: &str,
+  limit: u64,
+) -> Result<Vec<u8>, String> {
+  let mut response = client
+    .get(url)
+    .send()
+    .await
+    .map_err(|e| e.to_string())?
+    .error_for_status()
+    .map_err(|e| e.to_string())?;
+  if response.content_length().is_some_and(|len| len > limit) {
+    return Err("更新响应超过大小限制".into());
+  }
+  let mut bytes = Vec::new();
+  while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+    if bytes.len() as u64 + chunk.len() as u64 > limit {
+      return Err("更新响应超过大小限制".into());
+    }
+    bytes.extend_from_slice(&chunk);
+  }
+  Ok(bytes)
 }
 
 #[derive(serde::Serialize)]
@@ -50,7 +100,7 @@ pub struct UpdateCheck {
 pub async fn updater_status(
   app: AppHandle,
   store: State<'_, Mutex<UpdateStore>>,
-) -> Result<UpdaterStatus> {
+) -> Result<UpdaterStatus, String> {
   let status = configuration(&app);
   if !status.configured {
     store.lock().await.clear();
@@ -62,25 +112,32 @@ pub async fn updater_status(
 pub async fn updater_check(
   app: AppHandle,
   store: State<'_, Mutex<UpdateStore>>,
-) -> Result<UpdateCheck> {
-  let mut state = store.lock().await;
+) -> Result<UpdateCheck, String> {
+  let mut state = store
+    .try_lock()
+    .map_err(|_| "更新操作正在进行，请勿重复操作")?;
   state.clear();
   let status = configuration(&app);
+  let current = app.package_info().version.to_string();
   if status.configured {
-    state.update = app
-      .updater_builder()
-      .endpoints(vec![UPDATE_ENDPOINT
-        .parse()
-        .expect("static HTTPS updater URL")])?
-      .timeout(std::time::Duration::from_secs(30))
-      .build()?
-      .check()
-      .await?;
+    let client = update_client()?;
+    let raw = bounded_download(&client, UPDATE_ENDPOINT, 128 * 1024).await?;
+    let sig = bounded_download(&client, &format!("{UPDATE_ENDPOINT}.sig"), 1024).await?;
+    let sig = String::from_utf8(sig).map_err(|_| "无效更新签名编码")?;
+    // A current-version manifest still requires signature and identity verification.
+    let manifest: PortableManifest = verify_manifest(&raw, sig.trim(), UPDATE_PUBLIC_KEY, "0.0.0")?;
+    let offered = semver::Version::parse(&manifest.version).map_err(|e| e.to_string())?;
+    let current_version = semver::Version::parse(&current).map_err(|e| e.to_string())?;
+    if offered.cmp_precedence(&current_version).is_gt() {
+      state.update = Some(manifest);
+      state.raw_manifest = Some(raw);
+      state.signature = Some(sig.trim().to_string());
+    }
   }
   Ok(UpdateCheck {
     status,
     available: state.update.is_some(),
-    current_version: app.package_info().version.to_string(),
+    current_version: current,
     available_version: state.update.as_ref().map(|update| update.version.clone()),
   })
 }
@@ -88,33 +145,38 @@ pub async fn updater_check(
 #[cfg(test)]
 mod tests {
   #[test]
-  fn unconfigured_check_is_explicit_and_uses_camel_case() {
-    let result = super::UpdateCheck {
-      status: super::status_for_key(""),
-      available: false,
-      current_version: "1.0.0".into(),
-      available_version: None,
-    };
-    let json = serde_json::to_value(result).unwrap();
-    assert_eq!(json["configured"], false);
-    assert!(json["currentVersion"].is_string());
-    assert!(json["reason"].as_str().unwrap().contains("公钥"));
-    assert_eq!(json["releasesUrl"], super::RELEASES_URL);
+  fn update_redirects_allow_only_github_https_assets() {
+    for url in [
+      "https://github.com/jianjieyiban/JJYB-YouTube-dl",
+      "https://release-assets.githubusercontent.com/asset?token=temporary",
+      "https://objects.githubusercontent.com/asset",
+    ] {
+      assert!(super::trusted_update_redirect(&url.parse().unwrap()));
+    }
+    for url in [
+      "http://github.com/asset",
+      "https://github.com.evil/asset",
+      "https://user@github.com/asset",
+      "https://github.com:444/asset",
+      "https://127.0.0.1/asset",
+      "https://jely2002.github.io/asset",
+    ] {
+      assert!(!super::trusted_update_redirect(&url.parse().unwrap()));
+    }
   }
 
   #[test]
-  fn whitespace_key_is_not_configured() {
-    assert!(!super::status_for_key(" \n").configured);
-  }
-
-  #[test]
-  fn clear_invalidates_downloaded_bytes() {
+  fn clear_invalidates_downloaded_bytes_and_signature() {
     let mut store = super::UpdateStore {
       bytes: Some(vec![1, 2, 3]),
+      raw_manifest: Some(vec![1]),
+      signature: Some("invalid".into()),
       ..Default::default()
     };
     store.clear();
     assert!(store.bytes.is_none());
     assert!(store.update.is_none());
+    assert!(store.raw_manifest.is_none());
+    assert!(store.signature.is_none());
   }
 }

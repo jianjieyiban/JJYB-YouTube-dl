@@ -40,6 +40,10 @@ pub fn subscribe_group(group_id: &str) -> watch::Receiver<bool> {
   }
 }
 
+pub fn has_pending_groups() -> bool {
+  !RUNNING_GROUPS.lock().unwrap().is_empty()
+}
+
 pub fn is_group_running(group_id: &str) -> bool {
   RUNNING_GROUPS
     .lock()

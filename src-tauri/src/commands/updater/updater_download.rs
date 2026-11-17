@@ -1,6 +1,5 @@
-use std::io;
+use crate::portable_update::{verify_executable, PortableManifest};
 use tauri::{AppHandle, Emitter, State};
-use tauri_plugin_updater::{Result, Update};
 use tokio::sync::Mutex;
 
 #[derive(serde::Serialize, Clone)]
@@ -11,62 +10,77 @@ pub struct UpdateProgress {
 
 #[derive(Default)]
 pub struct UpdateStore {
-  pub update: Option<Update>,
+  pub update: Option<PortableManifest>,
+  pub raw_manifest: Option<Vec<u8>>,
+  pub signature: Option<String>,
   pub bytes: Option<Vec<u8>>,
 }
 
 impl UpdateStore {
   pub fn clear(&mut self) {
     self.update = None;
+    self.raw_manifest = None;
+    self.signature = None;
     self.bytes = None;
   }
 }
 
 #[tauri::command]
-pub async fn updater_download(app: AppHandle, store: State<'_, Mutex<UpdateStore>>) -> Result<()> {
-  let mut s = store.lock().await;
-  s.bytes = None;
+pub async fn updater_download(
+  app: AppHandle,
+  store: State<'_, Mutex<UpdateStore>>,
+) -> Result<(), String> {
+  let mut state = store
+    .try_lock()
+    .map_err(|_| "更新操作正在进行，请勿重复操作")?;
+  state.bytes = None;
   if !super::configuration(&app).configured {
-    s.clear();
-    return Err(io::Error::other("未配置自有更新公钥").into());
+    state.clear();
+    return Err("当前版本不支持便携一键更新".into());
   }
-  let update = s
-    .update
-    .clone()
-    .ok_or_else(|| io::Error::other("no update available"))?;
-  let app_for_progress = app.clone();
-  let app_for_error = app.clone();
-
-  let mut received: usize = 0;
-  tracing::info!("[updater] Downloading update: {}", update.version);
-  let bytes = update
-    .download(
-      move |chunk_len, content_len| {
-        received += chunk_len;
-        let _ = app_for_progress.emit(
-          "updater_download_progress",
-          UpdateProgress {
-            total: content_len,
-            received,
-          },
-        );
-      },
-      move || {
-        tracing::info!("[updater] Update download complete.");
-      },
-    )
-    .await;
-
-  match bytes {
+  let manifest = state.update.clone().ok_or("请先检查可用更新")?;
+  let result: Result<Vec<u8>, String> = async {
+    let client = super::update_client()?;
+    let mut response = client
+      .get(&manifest.url)
+      .send()
+      .await
+      .map_err(|e| e.to_string())?
+      .error_for_status()
+      .map_err(|e| e.to_string())?;
+    if response
+      .content_length()
+      .is_some_and(|size| size != manifest.size)
+    {
+      return Err("更新文件长度与签名清单不符".into());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+      if bytes.len() as u64 + chunk.len() as u64 > manifest.size {
+        return Err("更新文件超过签名大小".into());
+      }
+      bytes.extend_from_slice(&chunk);
+      let _ = app.emit(
+        "updater_download_progress",
+        UpdateProgress {
+          received: bytes.len(),
+          total: Some(manifest.size),
+        },
+      );
+    }
+    verify_executable(&bytes, &manifest)?;
+    Ok(bytes)
+  }
+  .await;
+  match result {
     Ok(bytes) => {
-      s.bytes = Some(bytes);
+      state.bytes = Some(bytes);
       Ok(())
     }
-    Err(e) => {
-      s.clear();
-      tracing::info!("[updater] Update download failed: {e}");
-      let _ = app_for_error.emit("updater_error", e.to_string());
-      Err(e)
+    Err(error) => {
+      state.clear();
+      let _ = app.emit("updater_error", &error);
+      Err(error)
     }
   }
 }
