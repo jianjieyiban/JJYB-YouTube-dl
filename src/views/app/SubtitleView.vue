@@ -17,9 +17,15 @@
     </base-sub-nav>
 
     <section class="flex flex-col px-8 py-4">
+      <base-fieldset :legend="t('subtitles.options.enable.legend')" :label="t('subtitles.options.enable.legendLabel')">
+        <label class="flex items-center gap-3">
+          <input id="enable-subtitles" v-model="subtitlesEnabled" :disabled="!hasSubtitleSelection" type="checkbox" class="toggle toggle-primary" />
+          <span>{{ t('subtitles.options.enable.label') }}</span>
+        </label>
+      </base-fieldset>
       <base-fieldset :legend="t('subtitles.task.priorityLegend')" :label="t('subtitles.task.priorityOrder')">
         <label class="flex items-center gap-3">
-          <input id="chinese-priority" v-model="subtitleSettings.chinesePriority" type="checkbox" class="toggle toggle-primary" />
+          <input id="chinese-priority" v-model="chinesePriority" type="checkbox" class="toggle toggle-primary" />
           <span>{{ t('subtitles.task.priorityLabel') }}</span>
         </label>
         <p class="mt-3 text-sm text-base-content/70">{{ t('subtitles.task.defaultsHint') }}</p>
@@ -197,10 +203,32 @@ const hasChanges = computed(() => {
   return !areSubtitleSettingsEqual(subtitleSettings.value, settingsStore.settings.subtitles);
 });
 
+const hasSubtitleSelection = computed(() =>
+  subtitleSettings.value.chinesePriority || subtitleSettings.value.languages.length > 0,
+);
+
+const subtitlesEnabled = computed({
+  get: () => hasSubtitleSelection.value && subtitleSettings.value.enabled,
+  set: (value: boolean) => {
+    subtitleSettings.value.enabled = value;
+  },
+});
+
+const chinesePriority = computed({
+  get: () => subtitleSettings.value.chinesePriority,
+  set: (value: boolean) => {
+    const hadSelection = hasSubtitleSelection.value;
+    subtitleSettings.value.chinesePriority = value;
+    if (!hadSelection && hasSubtitleSelection.value) subtitleSettings.value.enabled = true;
+  },
+});
+
 const languageSelection = computed({
   get: () => subtitleSettings.value.languages,
   set: (value: string[]) => {
+    const hadSelection = hasSubtitleSelection.value;
     subtitleSettings.value.languages = sanitizeSubtitleLanguages(value);
+    if (!hadSelection && hasSubtitleSelection.value) subtitleSettings.value.enabled = true;
   },
 });
 

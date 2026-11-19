@@ -23,13 +23,13 @@
         <exclamation-circle-icon class="w-5 h-5"/>
         {{ t('media.view.logs.failure') }}
       </span>
-      <span v-html="diagnosticDisplay.message"/>
+      <span v-html="diagnosticDisplay.messageHtml"/>
     </component>
     <div v-if="hasDetails" class="collapse-content text-sm flex flex-col gap-2">
       <p
           class="max-h-44 text-wrap overflow-y-scroll bg-base-200 p-4 rounded-box"
           v-if="diagnostic.raw"
-          v-html="diagnosticDisplay.raw"
+          v-html="diagnosticDisplay.rawHtml"
       />
       <button @click="report" v-if="isReportable" :disabled="hasReported" class="btn btn-subtle">
         <template v-if="isReporting">
@@ -45,7 +45,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, PropType, ref } from 'vue';
+import { computed, PropType, toRef } from 'vue';
 import { ExclamationCircleIcon } from '@heroicons/vue/24/solid';
 import { useI18n } from 'vue-i18n';
 import { useDiagnostic } from '../../composables/useDiagnostic.ts';
@@ -75,6 +75,6 @@ const {
   isReporting,
   hasReported,
   relatedFatal,
-} = useDiagnostic(ref(diagnostic));
+} = useDiagnostic(toRef(() => diagnostic));
 
 </script>

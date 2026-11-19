@@ -20,6 +20,14 @@ export const useMediaGroupStore = defineStore('media-group', () => {
       .filter((group): group is Group => !!group),
   );
 
+  const downloadAttempts = new Map<string, string>();
+  const setDownloadAttempt = (groupId: string, attemptId: string) => {
+    downloadAttempts.set(groupId, attemptId);
+  };
+  const getDownloadAttempt = (groupId: string) => downloadAttempts.get(groupId);
+  const acceptsMediaEvent = ({ groupId, attemptId }: { groupId: string; attemptId?: string }) =>
+    !!groups.value[groupId] && (attemptId === undefined || downloadAttempts.get(groupId) === attemptId);
+
   const findGroupById = (id: string) => groups.value[id];
 
   const findItemInGroup = (groupId: string, itemId: string) =>
@@ -54,14 +62,17 @@ export const useMediaGroupStore = defineStore('media-group', () => {
   };
 
   const deleteGroup = (id: string) => {
+    downloadAttempts.delete(id);
     delete groups.value[id];
     const index = groupOrder.value.indexOf(id);
     if (index !== -1) groupOrder.value.splice(index, 1);
   };
 
-  const cancelGroup = (id: string) => {
-    void invoke('group_cancel', { groupId: id });
-  };
+  const cancelGroup = (id: string, retainPartial = false) =>
+    invoke<{
+      completed: { id: string; destination: string }[];
+      failed: { id: string; message: string; publishedDestinations: string[] }[];
+    }>('group_cancel', { groupId: id, retainPartial });
 
   function splitGroup(group: Group): Group[] {
     const result: Group[] = [];
@@ -201,6 +212,9 @@ export const useMediaGroupStore = defineStore('media-group', () => {
     groupOrder,
     orderedGroups,
     countGroups,
+    setDownloadAttempt,
+    getDownloadAttempt,
+    acceptsMediaEvent,
     findGroupById,
     findItemInGroup,
     findGroupByItemId,

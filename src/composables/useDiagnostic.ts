@@ -10,10 +10,11 @@ import { useLinkify } from './useLinkify.ts';
 type DisplayDiagnostic = {
   shortMessage: string;
   message: string;
-  raw: string;
+  messageHtml: string;
+  rawHtml: string;
 };
 
-export function useDiagnostic(diagnostic: Ref<MediaDiagnostic>, short = false) {
+export function useDiagnostic(diagnostic: Ref<MediaDiagnostic>) {
   const toastStore = useToastStore();
   const diagnosticsStore = useMediaDiagnosticsStore();
 
@@ -24,37 +25,21 @@ export function useDiagnostic(diagnostic: Ref<MediaDiagnostic>, short = false) {
 
   const diagnosticDisplay = computed((): DisplayDiagnostic => {
     const i18nValues: Record<string, Record<string, string>> = i18n.tm('errors.runner');
-
-    const message = diagnostic.value?.message ?? t('errors.runner.unknown.message');
-    const linkifiedMessage = linkify(message);
-
+    const code = diagnostic.value?.code;
+    const localized = code && code !== 'unknown' ? i18nValues[code] : undefined;
     const raw = diagnostic.value?.raw ?? '';
-    const linkifiedRaw = linkify(raw);
+    const originalMessage = diagnostic.value?.message?.trim() || raw.trim();
+    const message = localized?.message ?? (originalMessage || t('errors.runner.unknown.message'));
+    const shortMessage = localized?.shortMessage ?? (originalMessage
+      ? firstSentence(originalMessage)
+      : t('errors.runner.unknown.shortMessage'));
 
-    const shortMessage = diagnostic.value.message
-      ? firstSentence(diagnostic.value.message)
-      : t('errors.runner.unknown.shortMessage');
-
-    if (diagnostic.value?.code && diagnostic.value.code !== 'unknown') {
-      return {
-        message: linkifiedMessage,
-        shortMessage,
-        ...i18nValues[diagnostic.value.code],
-        raw: linkifiedRaw,
-      };
-    } else if (short) {
-      return {
-        message: t('errors.runner.unknown.message'),
-        shortMessage: t('errors.runner.unknown.shortMessage'),
-        raw: linkifiedRaw,
-      };
-    } else {
-      return {
-        message: linkifiedMessage,
-        shortMessage,
-        raw: linkifiedRaw,
-      };
-    }
+    return {
+      message,
+      shortMessage,
+      messageHtml: linkify(message),
+      rawHtml: linkify(raw),
+    };
   });
 
   function report() {

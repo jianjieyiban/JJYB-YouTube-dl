@@ -6,10 +6,10 @@ use crate::paths::PathsManager;
 use crate::runners::override_resolver::resolve_with_patch;
 use crate::runners::template_context::TemplateContext;
 use crate::runners::ytdlp_args::{
-  build_format_args, build_input_filter_args, build_location_args, build_output_args,
+  build_format_args, build_input_filter_args, build_output_args, build_output_template,
 };
 use crate::runners::ytdlp_process::{
-  configure_command, kill_platform_process, platform_process_from_child, PlatformProcess,
+  configure_command, kill_platform_process, platform_process_from_child,
 };
 use crate::state::config_models::{AuthSettings, Config, SponsorBlockSettings, SubtitleSettings};
 use crate::state::preferences_models::Preferences;
@@ -19,8 +19,9 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use std::thread;
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
@@ -47,7 +48,8 @@ pub struct YtdlpOutput {
 
 #[derive(Debug)]
 pub struct YtdlpChild {
-  platform: PlatformProcess,
+  shutdown: mpsc::Sender<()>,
+  reaped: tokio::sync::oneshot::Receiver<()>,
 }
 
 pub struct YtdlpRunner<'a> {
@@ -150,16 +152,17 @@ impl<'a> YtdlpRunner<'a> {
     mut self,
     overrides: Option<&DownloadOverrides>,
     subtitle_inventory: Option<&SubtitleInventory>,
-  ) -> Self {
+  ) -> (Self, bool) {
     let subtitle_overrides = overrides.and_then(|value| value.subtitles.as_ref());
     let subtitle_settings = resolve_with_patch(&self.cfg.subtitles, subtitle_overrides);
     if let Some(subtitle_args) =
       build_subtitle_args(&subtitle_settings, subtitle_overrides, subtitle_inventory)
     {
       self.args.extend(subtitle_args);
+      (self, true)
+    } else {
+      (self, false)
     }
-
-    self
   }
 
   pub fn with_sponsorblock_args(mut self, overrides: Option<&DownloadOverrides>) -> Self {
@@ -248,12 +251,12 @@ impl<'a> YtdlpRunner<'a> {
     build_output_args(format_options, &output_settings, partial_download)
   }
 
-  pub fn with_location_args(
-    mut self,
+  pub fn output_template(
+    &self,
     track_type: &TrackType,
     template_context: &TemplateContext,
     overrides: Option<&DownloadOverrides>,
-  ) -> Self {
+  ) -> PathBuf {
     let output_settings = resolve_with_patch(
       &self.cfg.output,
       overrides.and_then(|value| value.output.as_ref()),
@@ -263,14 +266,13 @@ impl<'a> YtdlpRunner<'a> {
       .path()
       .download_dir()
       .unwrap_or_else(|_| std::env::current_dir().expect("couldn’t get current dir"));
-    self.args.extend(build_location_args(
+    build_output_template(
       track_type,
       template_context,
       &output_settings,
       &self.prefs.paths,
       fallback_dir,
-    ));
-    self
+    )
   }
 
   pub fn with_url(mut self, url: &str) -> Self {
@@ -302,56 +304,7 @@ impl<'a> YtdlpRunner<'a> {
   pub fn spawn(self) -> Result<(UnboundedReceiver<YtdlpCommandEvent>, YtdlpChild), String> {
     log_run_summary(&self.args);
     tracing::debug!("Running command: yt-dlp {}", self.args.join(" "));
-    let mut command = self.build_command()?;
-    command
-      .stdin(Stdio::piped())
-      .stdout(Stdio::piped())
-      .stderr(Stdio::piped());
-
-    configure_command(&mut command).map_err(|e| format!("yt-dlp spawn setup failed: {e}"))?;
-
-    let mut raw_child = command
-      .spawn()
-      .map_err(|e| format!("yt-dlp failed to spawn: {e}"))?;
-    let stdout = raw_child.stdout.take();
-    let stderr = raw_child.stderr.take();
-
-    let platform = match platform_process_from_child(&raw_child) {
-      Ok(platform) => platform,
-      Err(err) => {
-        let _ = raw_child.kill();
-        return Err(err);
-      }
-    };
-
-    let (tx, rx) = unbounded_channel();
-
-    if let Some(stdout) = stdout {
-      spawn_reader(stdout, tx.clone(), true);
-    }
-    if let Some(stderr) = stderr {
-      spawn_reader(stderr, tx.clone(), false);
-    }
-
-    let wait_tx = tx.clone();
-    thread::spawn(move || {
-      let status = raw_child.wait();
-      match status {
-        Ok(status) => {
-          let payload = TerminatedPayload {
-            code: status.code(),
-          };
-          let _ = wait_tx.send(YtdlpCommandEvent::Terminated(payload));
-        }
-        Err(err) => {
-          let _ = wait_tx.send(YtdlpCommandEvent::Error(err.to_string()));
-        }
-      }
-    });
-
-    let child = YtdlpChild { platform };
-
-    Ok((rx, child))
+    spawn_download_command(self.build_command()?).map(|(rx, child, _)| (rx, child))
   }
 
   fn build_command(&self) -> Result<Command, String> {
@@ -410,6 +363,89 @@ impl<'a> YtdlpRunner<'a> {
   }
 }
 
+fn spawn_download_command(
+  mut command: Command,
+) -> Result<(UnboundedReceiver<YtdlpCommandEvent>, YtdlpChild, u32), String> {
+  command
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
+
+  configure_command(&mut command).map_err(|e| format!("yt-dlp spawn setup failed: {e}"))?;
+
+  let mut raw_child = command
+    .spawn()
+    .map_err(|e| format!("yt-dlp failed to spawn: {e}"))?;
+  let pid = raw_child.id();
+  let stdout = raw_child.stdout.take();
+  let stderr = raw_child.stderr.take();
+
+  let platform = match platform_process_from_child(&raw_child) {
+    Ok(platform) => platform,
+    Err(err) => {
+      let _ = raw_child.kill();
+      let _ = raw_child.wait();
+      return Err(err);
+    }
+  };
+
+  let (tx, rx) = unbounded_channel();
+
+  let stdout = stdout.map(|reader| spawn_reader(reader, tx.clone(), true));
+  let stderr = stderr.map(|reader| spawn_reader(reader, tx.clone(), false));
+
+  let (shutdown, shutdown_rx) = mpsc::channel();
+  let (reaped_tx, reaped) = tokio::sync::oneshot::channel();
+  thread::spawn(move || {
+    let status = loop {
+      match shutdown_rx.recv_timeout(Duration::from_millis(20)) {
+        Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+          kill_platform_process(&platform);
+          let _ = raw_child.kill();
+          // A descendant that escaped the group could still hold a pipe.
+          // Reap the leader without waiting for the reader threads.
+          break raw_child.wait();
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+          // Drain diagnostics before reporting termination. Until then, keep
+          // the leader unreaped so cancellation can safely signal the group.
+          if stdout
+            .iter()
+            .chain(stderr.iter())
+            .all(|reader| reader.is_finished())
+          {
+            match raw_child.try_wait() {
+              Ok(None) => continue,
+              Ok(Some(status)) => break Ok(status),
+              Err(err) => break Err(err),
+            }
+          }
+        }
+      }
+    };
+    #[cfg(windows)]
+    drop(platform);
+    if status.is_ok() {
+      let _ = reaped_tx.send(());
+    }
+    match status {
+      Ok(status) => {
+        let payload = TerminatedPayload {
+          code: status.code(),
+        };
+        let _ = tx.send(YtdlpCommandEvent::Terminated(payload));
+      }
+      Err(err) => {
+        let _ = tx.send(YtdlpCommandEvent::Error(err.to_string()));
+      }
+    }
+  });
+
+  let child = YtdlpChild { shutdown, reaped };
+
+  Ok((rx, child, pid))
+}
+
 /// Presence-only summary of a yt-dlp invocation, safe to log or send to
 /// Sentry at any log level. Unlike a redaction blacklist, an omission here
 /// can only under-report metadata — it can never leak a secret value,
@@ -460,9 +496,16 @@ fn log_run_summary(args: &[String]) {
 }
 
 impl YtdlpChild {
-  pub fn kill_tree(&self) -> Result<(), String> {
-    kill_platform_process(&self.platform);
-    Ok(())
+  pub async fn shutdown(&mut self) -> Result<(), tokio::sync::oneshot::error::RecvError> {
+    let _ = self.shutdown.send(());
+    // A timeout alone must not release staging for cleanup or reuse.
+    match tokio::time::timeout(Duration::from_secs(3), &mut self.reaped).await {
+      Ok(result) => result,
+      Err(_) => {
+        tracing::warn!("Still waiting for yt-dlp to exit before download cleanup");
+        (&mut self.reaped).await
+      }
+    }
   }
 }
 
@@ -470,7 +513,7 @@ fn spawn_reader<R: Read + Send + 'static>(
   reader: R,
   tx: UnboundedSender<YtdlpCommandEvent>,
   is_stdout: bool,
-) {
+) -> thread::JoinHandle<()> {
   thread::spawn(move || {
     let mut reader = BufReader::new(reader);
     let mut buf = Vec::new();
@@ -510,7 +553,7 @@ fn spawn_reader<R: Read + Send + 'static>(
         }
       }
     }
-  });
+  })
 }
 
 fn build_subtitle_args(
@@ -966,6 +1009,67 @@ fn subtitle_language_bases(languages: &[String]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+  #[tokio::test]
+  async fn slow_reaping_does_not_finish_shutdown_before_confirmation() {
+    use super::{mpsc, Duration, YtdlpChild};
+
+    let (shutdown, shutdown_rx) = mpsc::channel();
+    let (reaped_tx, reaped) = tokio::sync::oneshot::channel();
+    let mut child = YtdlpChild { shutdown, reaped };
+    let mut stopped = std::pin::pin!(child.shutdown());
+    assert!(
+      tokio::time::timeout(Duration::from_millis(3200), stopped.as_mut())
+        .await
+        .is_err()
+    );
+    assert!(shutdown_rx.try_recv().is_ok());
+    reaped_tx.send(()).unwrap();
+    stopped.await.unwrap();
+  }
+
+  #[tokio::test]
+  async fn shutdown_reports_lost_reaping_confirmation() {
+    use super::{mpsc, YtdlpChild};
+
+    let (shutdown, shutdown_rx) = mpsc::channel();
+    let (reaped_tx, reaped) = tokio::sync::oneshot::channel();
+    let mut child = YtdlpChild { shutdown, reaped };
+    drop(reaped_tx);
+
+    assert!(child.shutdown().await.is_err());
+    assert!(shutdown_rx.try_recv().is_ok());
+  }
+
+  #[cfg(unix)]
+  #[tokio::test]
+  async fn cancellation_reaps_term_resistant_group() {
+    use super::{spawn_download_command, Command, Duration, YtdlpCommandEvent};
+
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", "trap '' TERM; sleep 30 & echo ready; wait"]);
+    let (mut events, mut child, pid) = spawn_download_command(command).unwrap();
+    let ready = tokio::time::timeout(Duration::from_secs(3), events.recv())
+      .await
+      .expect("shell did not install its signal handler");
+    assert!(matches!(ready, Some(YtdlpCommandEvent::Stdout(line)) if line == b"ready"));
+
+    child.shutdown().await.unwrap();
+    let mut status = 0;
+    assert_eq!(
+      unsafe { libc::waitpid(pid as i32, &mut status, libc::WNOHANG) },
+      -1
+    );
+    assert_eq!(
+      std::io::Error::last_os_error().raw_os_error(),
+      Some(libc::ECHILD)
+    );
+    tokio::time::timeout(Duration::from_secs(3), async {
+      while events.recv().await.is_some() {}
+    })
+    .await
+    .expect("a descendant still owns the process pipes");
+  }
+
   use super::{
     build_sponsorblock_args, build_subtitle_args, normalize_extractor_args, summarize_args_for_log,
   };

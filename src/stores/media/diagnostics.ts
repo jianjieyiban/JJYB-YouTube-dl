@@ -15,16 +15,19 @@ export const useMediaDiagnosticsStore = defineStore('media-diagnostics', () => {
   const mediaStore = useMediaStore();
 
   function processMediaDiagnosticPayload(payload: MediaDiagnostic) {
+    if (!groupStore.acceptsMediaEvent(payload)) return;
     diagnostics.value[payload.id] = diagnostics.value[payload.id] ?? [];
     diagnostics.value[payload.id].push(payload);
   }
 
   function processMediaFatalPayload(payload: MediaFatal) {
+    if (!groupStore.acceptsMediaEvent(payload)) return;
+    const previous = fatals.value[payload.id];
     fatals.value[payload.id] = payload;
     const { groupId } = payload;
+    if (payload.attemptId && previous?.groupId === groupId && previous.attemptId === payload.attemptId) return;
     const currentState = stateStore.getGroupState(groupId);
     const group = groupStore.findGroupById(groupId);
-    if (!group) throw new Error('Orphaned media item found during error handling.');
     if (currentState === MediaState.fetching || currentState === MediaState.fetchingList) {
       mediaStore.rejectPendingReadyGroup(groupId, payload.message);
     }

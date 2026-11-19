@@ -125,6 +125,30 @@ function createSettingsRouter() {
 }
 
 describe('SettingsView', () => {
+  it('keeps native language names visible in Chinese and saves the selected language', async () => {
+    const previousLocale = i18n.global.locale.value;
+    i18n.global.locale.value = 'zh-CN';
+    patch.mockReset();
+    Object.assign(settingsState, structuredClone(defaultSettings));
+    const router = createSettingsRouter();
+    await router.push('/settings/app');
+    await router.isReady();
+    const wrapper = mount(createRoot(), { global: { plugins: [router, i18n] } });
+    try {
+      const languages = wrapper.get('#language');
+      expect(languages.find('option[value="en"]').text()).toContain('English');
+      expect(languages.find('option[value="zh-CN"]').text()).toContain('简体中文');
+      expect(wrapper.get('#language-hint').text()).toContain('保存');
+      expect(languages.findAll('option')).toHaveLength(14);
+      await languages.setValue('en');
+      await wrapper.get('form').trigger('submit');
+      expect(patch.mock.calls[0][0].appearance.language).toBe('en');
+    } finally {
+      wrapper.unmount();
+      i18n.global.locale.value = previousLocale;
+    }
+  });
+
   it('renders the router-link tabs used by the media views', async () => {
     const router = createSettingsRouter();
     await router.push('/settings');

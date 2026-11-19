@@ -75,6 +75,7 @@ import { useI18n } from 'vue-i18n';
 import { useGroupLog } from '../../composables/useGroupLog';
 import { useLinkify } from '../../composables/useLinkify';
 import { groupSkippedDiagnostics, isSkippedDiagnostic } from '../../helpers/skippedDiagnostics.ts';
+import { isErrorForFailure } from '../../helpers/diagnostics.ts';
 
 const { t } = useI18n();
 const props = defineProps({
@@ -98,13 +99,33 @@ const hasLog = computed(() => groupLog.logText.value.length > 0);
 const errors = computed((): MediaDiagnostic[] => {
   const diagnostics = diagnosticsStore.findDiagnosticsByGroupId(groupId.value);
   const errorDiagnostics: MediaDiagnostic[] = diagnostics.filter(diagnostic => diagnostic.level === 'error');
-  const fatalDiagnostics: MediaDiagnostic[] = diagnosticsStore.findFatalsByGroupId(groupId.value).map(fatal => ({
-    ...fatal,
-    level: 'error',
-    code: fatal.code ?? 'unknown',
-    raw: fatal.details != null ? `\n${fatal.details}` : '',
-    component: null,
-  }));
+  const fatalDiagnostics: MediaDiagnostic[] = [];
+  for (const fatal of diagnosticsStore.findFatalsByGroupId(groupId.value)) {
+    const isGenericDownloadFailure = !fatal.internal && !fatal.code && fatal.exitCode !== 101
+      && fatal.message === `Download failed for group ${fatal.groupId}`;
+    const matchingIndex = isGenericDownloadFailure
+      ? errorDiagnostics.reduce((index, diagnostic, i) => (
+          diagnostic.code !== 'unknown' && isErrorForFailure(diagnostic, fatal) ? i : index
+        ), -1)
+      : -1;
+    if (matchingIndex !== -1) {
+      const diagnostic = errorDiagnostics[matchingIndex];
+      if (fatal.details && fatal.details !== diagnostic.raw) {
+        errorDiagnostics[matchingIndex] = {
+          ...diagnostic,
+          raw: [diagnostic.raw, fatal.details].filter(Boolean).join('\n'),
+        };
+      }
+      continue;
+    }
+    fatalDiagnostics.push({
+      ...fatal,
+      level: 'error',
+      code: fatal.code ?? 'unknown',
+      raw: fatal.details ?? '',
+      component: null,
+    });
+  }
   return [...fatalDiagnostics, ...errorDiagnostics];
 });
 

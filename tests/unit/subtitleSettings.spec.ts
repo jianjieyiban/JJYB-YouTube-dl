@@ -24,6 +24,13 @@ describe('subtitle settings helpers', () => {
       .toMatchObject({ chinesePriority: false, languages: ['ja'] });
   });
 
+  it('preserves explicit false with Chinese priority or selected tracks', () => {
+    expect(createSubtitleSettings({ ...defaultSubtitleSettings, enabled: false }).enabled).toBe(false);
+    expect(mergeSubtitleSettings(defaultSubtitleSettings, { enabled: false, languages: ['ja'] }))
+      .toMatchObject({ enabled: false, chinesePriority: false, languages: ['ja'] });
+    expect(mergeSubtitleSettings({ ...defaultSubtitleSettings, enabled: false }, { enabled: true }).enabled).toBe(true);
+  });
+
   it('normalizes subtitle settings consistently', () => {
     expect(createSubtitleSettings({
       ...defaultSubtitleSettings,

@@ -180,6 +180,11 @@ describe('media progress store', () => {
     expect(progress?.total).toBe(2);
   });
 
+  it('ignores a publication completion delivered after the group is removed', () => {
+    useMediaProgressStore().processMediaCompletePayload({ id: 'removed-item', groupId: 'removed-group' });
+    expect(useMediaStateStore().getState('removed-item')).toBeUndefined();
+  });
+
   it('keeps playlist fetch groups in fetchingList when one item metadata fetch fails', () => {
     const groupStore = useMediaGroupStore();
     const stateStore = useMediaStateStore();

@@ -86,8 +86,16 @@ pub fn finish_subtitles(
         if files.contains(&path) {
           continue;
         }
-        let text = std::fs::read_to_string(&path)
-          .map_err(|e| format!("Missing subtitle output {}: {e}", path.display()))?;
+        let text = match std::fs::read_to_string(&path) {
+          Ok(text) => text,
+          Err(err) if !required && err.kind() == std::io::ErrorKind::NotFound => {
+            tracing::warn!(path = %path.display(), "Optional subtitle output is missing");
+            continue;
+          }
+          Err(err) => {
+            return Err(format!("Could not read subtitle output {}: {err}", path.display()).into())
+          }
+        };
         if text.trim().is_empty() || !text.contains(" --> ") {
           return Err("Subtitle output is empty or invalid SRT".into());
         }
@@ -155,6 +163,31 @@ mod tests {
     finish_subtitles(&manifest, false, true).unwrap();
     assert_eq!(std::fs::read_to_string(&subtitle).unwrap(), original);
   }
+  #[test]
+  fn optional_missing_track_does_not_block_existing_subtitle() {
+    let directory = tempfile::tempdir().unwrap();
+    let missing = directory.path().join("video.zh-CN.srt");
+    let existing = directory.path().join("video.zh-Hant.srt");
+    let manifest = directory.path().join("manifest.jsonl");
+    let text = "1\n00:00:01,000 --> 00:00:02,000\n繁體字幕\n";
+    std::fs::write(&existing, text).unwrap();
+    std::fs::write(
+      &manifest,
+      serde_json::json!({"zh-CN": {"filepath": missing}, "zh-Hant": {"filepath": existing}})
+        .to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+      finish_subtitles(&manifest, true, false).unwrap(),
+      vec![existing.clone()]
+    );
+    assert_eq!(
+      std::fs::read_to_string(existing).unwrap(),
+      text.replace("繁體", "繁体")
+    );
+    assert!(finish_subtitles(&manifest, true, true).is_err());
+  }
+
   #[test]
   fn empty_artifacts_are_not_success() {
     let manifest = tempfile::NamedTempFile::new().unwrap();

@@ -1,4 +1,19 @@
 import ISO6391 from 'iso-639-1';
+import type { MediaItem } from '../../tauri/types/media';
+
+export function getAvailableSubtitleLanguages(items: Record<string, MediaItem>) {
+  const manual = new Set<string>();
+  const auto = new Set<string>();
+  for (const item of Object.values(items)) {
+    if (item.entries) continue;
+    item.subtitleInventory?.manualLanguages?.forEach(language => manual.add(language));
+    item.subtitleInventory?.autoLanguages?.forEach(language => auto.add(language));
+  }
+  return {
+    manual: Array.from(manual).sort(),
+    auto: getPreferredAutoSubtitleLanguages(Array.from(auto)),
+  };
+}
 
 export interface SubtitleLanguageOption {
   code: string;

@@ -28,12 +28,14 @@
     </label>
     <select
         id="language"
+        aria-describedby="language-hint"
         v-model="settings.appearance.language"
         class="select mb-2"
     >
       <option value="system">{{ t('settings.appearance.language.options.system', { language: systemLocale }) }}</option>
       <option v-for="option in languageOptions()" :key="option.value" :value="option.value">{{ option.label }}</option>
     </select>
+    <p id="language-hint" class="label">{{ t('settings.appearance.language.hint') }}</p>
     <label class="font-semibold" for="expandedOptions">
       {{ t('settings.appearance.expandedOptions.label') }}
     </label>
@@ -72,7 +74,7 @@ const languageOptions = () => {
     if (language) {
       if (currentLocale.value === 'zh-CN') {
         options.push({
-          label: new Intl.DisplayNames(['zh-CN'], { type: 'language' }).of(locale) ?? language.nativeName,
+          label: `${new Intl.DisplayNames(['zh-CN'], { type: 'language' }).of(locale)} - ${language.nativeName}`,
           value: language.code,
         });
       } else if (language.nativeName && language.nativeName !== language.englishName) {

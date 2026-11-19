@@ -1,5 +1,4 @@
 use crate::scheduling::concurrency::DynamicSemaphore;
-use crate::scheduling::group_state::{is_group_running, remove_group};
 use crate::scheduling::numbering::NumberingManager;
 use futures::Future;
 use std::{collections::VecDeque, sync::Arc};
@@ -8,6 +7,7 @@ use tokio::sync::mpsc;
 
 pub trait DispatchEntry: Clone + Send + Sync + 'static {
   fn group_id(&self) -> &String;
+  fn is_running(&self) -> bool;
   fn group_key(&self) -> Option<&String>;
   fn set_numbering(&mut self, autonumber: u64, group_autonumber: Option<u64>);
 }
@@ -15,7 +15,8 @@ pub trait DispatchEntry: Clone + Send + Sync + 'static {
 #[derive(Clone)]
 pub enum DispatchRequest<Req> {
   Pipeline(Req),
-  Cleanup { group_id: String },
+  // Recheck queued entries' own cancellation state, without targeting a group ID.
+  Wake,
 }
 
 pub struct GenericDispatcher<Req> {
@@ -52,19 +53,32 @@ where
     tauri::async_runtime::spawn(async move {
       let mut numbering = NumberingManager::new();
       let mut queues: VecDeque<(String, VecDeque<Entry>)> = VecDeque::new();
-      let mut pending_requeue: VecDeque<(String, VecDeque<Entry>)> = VecDeque::new();
+      let mut pending_requeue: Option<(String, VecDeque<Entry>)> = None;
+      let mut acquired = None;
+      let mut incoming = None;
       loop {
-        while let Ok(req) = rx.try_recv() {
+        let first = if incoming.is_some() {
+          incoming.take()
+        } else if queues.is_empty() && pending_requeue.is_none() {
+          drop(acquired.take());
+          let Some(req) = rx.recv().await else { break };
+          Some(req)
+        } else {
+          None
+        };
+        // Take a snapshot so a steady stream of requests cannot starve dispatch.
+        let ready = rx.len();
+        for req in first
+          .into_iter()
+          .chain((0..ready).map_while(|_| rx.try_recv().ok()))
+        {
           match req {
-            DispatchRequest::Cleanup { group_id } => {
-              queues.retain(|(gid, _)| gid != &group_id);
-              remove_group(&group_id);
-            }
+            DispatchRequest::Wake => {}
             DispatchRequest::Pipeline(inner) => {
-              let mut entries = make_entries(inner.clone());
+              let mut entries = make_entries(inner);
               if !entries.is_empty() {
                 let gid = entries[0].group_id().clone();
-                if is_group_running(&gid) {
+                if entries[0].is_running() {
                   for entry in entries.iter_mut() {
                     let group_key = entry.group_key();
                     let (autonumber, group_autonumber) = numbering.assign_for(group_key);
@@ -79,74 +93,68 @@ where
           }
         }
 
-        queues.retain(|(gid, _)| is_group_running(gid));
-
-        if !pending_requeue.is_empty() {
-          queues.append(&mut pending_requeue);
+        let is_running = |(_, queue): &(String, VecDeque<Entry>)| {
+          queue.front().is_some_and(DispatchEntry::is_running)
+        };
+        queues.retain(is_running);
+        pending_requeue = pending_requeue.filter(is_running);
+        if queues.is_empty() && pending_requeue.is_none() {
+          continue;
         }
 
-        // If no work, block until the next request.
-        if queues.is_empty() {
-          if let Some(req) = rx.recv().await {
-            let _ = tx_loop.send(req);
-            continue;
+        let Some(permit) = acquired.take() else {
+          tokio::select! {
+            biased;
+            permit = sem.acquire_owned() => acquired = Some(permit),
+            req = rx.recv() => {
+              let Some(req) = req else { break };
+              incoming = Some(req);
+            }
           }
-          break;
+          // Check arrivals and cancellation again before spending the permit.
+          continue;
+        };
+
+        // Requests already waiting for a turn precede the group just served.
+        queues.extend(pending_requeue.take());
+        let (group_id, mut q) = queues.pop_front().unwrap();
+        if !q.front().is_some_and(DispatchEntry::is_running) {
+          continue;
         }
 
-        while !queues.is_empty() {
-          // Grab one permit
-          let permit = sem.clone().acquire_owned().await;
+        // Grab the entry that is going to be run.
+        let entry = q.pop_front().unwrap();
 
-          if queues.is_empty() {
+        tracing::trace!(
+          group_id = %group_id,
+          remaining_in_group = q.len(),
+          "Dispatcher: scheduling entry"
+        );
+
+        let entry_group_id = entry.group_id().clone();
+
+        // Dispatch the entry with the permit.
+        {
+          let tx_job = tx_loop.clone();
+          let app2 = app_main.clone();
+          let run_job = run_job.clone();
+          tauri::async_runtime::spawn(async move {
+            tracing::trace!(
+              group_id = %entry_group_id,
+              "Dispatcher: starting entry"
+            );
+            run_job(tx_job, app2, entry.clone()).await;
+            tracing::trace!(
+              group_id = %entry_group_id,
+              "Dispatcher: finished entry, releasing permit"
+            );
             drop(permit);
-            continue;
-          }
+          });
+        }
 
-          // Pop the next group and its next entry
-          let (group_id, mut q) = queues.pop_front().unwrap();
-
-          // Skip cancelled groups.
-          let still_running = is_group_running(&group_id);
-          if !still_running {
-            drop(permit);
-            continue;
-          }
-
-          // Grab the entry that is going to be run.
-          let entry = q.pop_front().unwrap();
-
-          tracing::trace!(
-            group_id = %group_id,
-            remaining_in_group = q.len(),
-            "Dispatcher: scheduling entry"
-          );
-
-          let entry_group_id = entry.group_id().clone();
-
-          // Dispatch the entry with the permit.
-          {
-            let tx_job = tx_loop.clone();
-            let app2 = app_main.clone();
-            let run_job = run_job.clone();
-            tauri::async_runtime::spawn(async move {
-              tracing::trace!(
-                group_id = %entry_group_id,
-                "Dispatcher: starting entry"
-              );
-              run_job(tx_job, app2, entry.clone()).await;
-              tracing::trace!(
-                group_id = %entry_group_id,
-                "Dispatcher: finished entry, releasing permit"
-              );
-              drop(permit);
-            });
-          }
-
-          // Requeue if more groups are left.
-          if !q.is_empty() {
-            pending_requeue.push_back((group_id, q));
-          }
+        // Requeue if more groups are left.
+        if !q.is_empty() {
+          pending_requeue = Some((group_id, q));
         }
       }
     });
@@ -163,7 +171,6 @@ where
 mod tests {
   use super::*;
   use crate::scheduling::concurrency::DynamicSemaphore;
-  use crate::scheduling::group_state::ensure_group_running;
   use std::sync::atomic::{AtomicUsize, Ordering};
   use std::sync::Arc;
   use tauri::test::mock_app;
@@ -180,6 +187,9 @@ mod tests {
     fn group_id(&self) -> &String {
       &self.group_id
     }
+    fn is_running(&self) -> bool {
+      true
+    }
     fn group_key(&self) -> Option<&String> {
       None
     }
@@ -189,7 +199,6 @@ mod tests {
   async fn run_concurrency_test(max_concurrency: usize, total: usize) -> usize {
     let app = mock_app();
     let group_id = "test-group".to_string();
-    ensure_group_running(&group_id);
 
     let sem = Arc::new(DynamicSemaphore::new(max_concurrency));
     let current = Arc::new(AtomicUsize::new(0));
@@ -277,10 +286,9 @@ mod tests {
     let app = mock_app();
     let group_a = "group-a".to_string();
     let group_b = "group-b".to_string();
-    ensure_group_running(&group_a);
-    ensure_group_running(&group_b);
 
     let sem = Arc::new(DynamicSemaphore::new(1));
+    let initial_permit = sem.acquire_owned().await;
     let started: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let done = Arc::new(Notify::new());
     let total = 4usize;
@@ -330,14 +338,14 @@ mod tests {
       .sender()
       .send(DispatchRequest::Pipeline((group_b.clone(), 2)))
       .unwrap();
+    drop(initial_permit);
 
     timeout(Duration::from_secs(5), done.notified())
       .await
       .expect("dispatcher did not complete within timeout");
 
     let order = started.lock().await;
-    assert!(order.len() >= 2, "expected at least two started entries");
-    assert_ne!(order[0], order[1], "expected round-robin across groups");
+    assert_eq!(*order, [group_a.clone(), group_b.clone(), group_a, group_b]);
   }
 
   #[tokio::test]
@@ -345,8 +353,6 @@ mod tests {
     let app = mock_app();
     let group_a = "group-a".to_string();
     let group_b = "group-b".to_string();
-    ensure_group_running(&group_a);
-    ensure_group_running(&group_b);
 
     let sem = Arc::new(DynamicSemaphore::new(1));
     let started: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
@@ -437,13 +443,9 @@ mod tests {
       .iter()
       .position(|v| v.starts_with(&group_b))
       .expect("expected group B to start");
-    let idx_a_last = order
-      .iter()
-      .position(|v| v == &format!("{group_a}:2"))
-      .expect("expected third group A entry to start");
-    assert!(
-      idx_b < idx_a_last,
-      "expected new group to run before the last queued entry of existing group"
+    assert_eq!(
+      idx_b, 1,
+      "expected new group to take the next turn: {order:?}"
     );
   }
 }

@@ -148,6 +148,141 @@ describe('media store', () => {
     expect(optionsStore.getOptions(group.id)).toEqual({ trackType: TrackType.both, height: 720 });
   });
 
+  it.each(['ordinary', 'bulk'])('keeps the %s job subtitle choice when resuming and retrying', async (mode) => {
+    const group = createPlaylistGroup('subtitle-job', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    group.items.leader.subtitleInventory = { manualLanguages: ['ja'], autoLanguages: [] };
+    useMediaGroupStore().createGroup(group);
+    const stateStore = useMediaStateStore();
+    stateStore.setGroupState(group.id, MediaState.configure);
+    const optionsStore = useMediaOptionsStore();
+    const overrides = { subtitles: { enabled: false, languages: ['ja'] } };
+    optionsStore.setOverrides(group.id, overrides);
+    const mediaStore = useMediaStore();
+    const download = vi.fn(() => 'ok');
+    installTauriMock({
+      media_download: download,
+      media_info: (_cmd, args) => {
+        const { groupId, id } = args as { groupId: string; id: string };
+        mediaStore.processMediaAddPayload({ groupId, total: 1, item: { ...group.items.leader, id } });
+        return groupId;
+      },
+    });
+
+    if (mode === 'bulk') await mediaStore.downloadAllGroups();
+    else await mediaStore.downloadGroup(group.id, { trackType: TrackType.both });
+    await mediaStore.pauseGroup(group.id);
+    optionsStore.setOverrides(group.id, { subtitles: { enabled: true, languages: ['en'] } });
+    await mediaStore.resumeGroup(group.id);
+    stateStore.setGroupState(group.id, MediaState.error);
+    await mediaStore.retryGroup(group.id);
+
+    expect(download).toHaveBeenCalledTimes(3);
+    for (let call = 1; call <= 3; call++) {
+      expect(download).toHaveBeenNthCalledWith(call, 'media_download', expect.objectContaining({
+        items: [expect.objectContaining({ overrides })],
+      }));
+    }
+  });
+
+  it('waits for submission before pausing and for pause before resuming', async () => {
+    const group = createPlaylistGroup('rapid-pause', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    const mediaStore = useMediaStore();
+    let finishSubmission!: (value: string) => void;
+    let finishPause!: () => void;
+    const submission = new Promise<string>((resolve) => {
+      finishSubmission = resolve;
+    });
+    const pause = new Promise<void>((resolve) => {
+      finishPause = resolve;
+    });
+    const download = vi.fn().mockReturnValueOnce(submission).mockReturnValue('ok');
+    const cancel = vi.fn(() => pause);
+    installTauriMock({ media_download: download, group_cancel: cancel });
+
+    const downloading = mediaStore.downloadGroup(group.id, { trackType: TrackType.both });
+    const pausing = mediaStore.pauseGroup(group.id);
+    const resuming = mediaStore.resumeGroup(group.id);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(download).toHaveBeenCalledTimes(1);
+    finishSubmission('ok');
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledWith('group_cancel', { groupId: group.id, retainPartial: true }));
+    expect(download).toHaveBeenCalledTimes(1);
+    finishPause();
+    await Promise.all([downloading, pausing, resuming]);
+    expect(download).toHaveBeenCalledTimes(2);
+
+    mediaStore.deleteGroup(group.id);
+    expect(cancel).toHaveBeenLastCalledWith('group_cancel', { groupId: group.id, retainPartial: false });
+  });
+
+  it('does not resume an item whose publication won the pause race', async () => {
+    const group = createPlaylistGroup('publication-won', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    const mediaStore = useMediaStore();
+    const download = vi.fn().mockReturnValue('ok');
+    installTauriMock({
+      media_download: download,
+      group_cancel: () => ({ completed: [{ id: 'leader', destination: 'saved.mp4' }], failed: [] }),
+    });
+    await mediaStore.downloadGroup(group.id, { trackType: TrackType.both });
+    await Promise.all([mediaStore.pauseGroup(group.id), mediaStore.resumeGroup(group.id)]);
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(useMediaStateStore().getState('leader')).toBe(MediaState.done);
+  });
+
+  it.each(['single', 'all'])('discards prior attempt diagnostics when resuming via %s', async (mode) => {
+    const group = createPlaylistGroup('resume-diagnostics', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    const mediaStore = useMediaStore();
+    const diagnostics = useMediaDiagnosticsStore();
+    const download = vi.fn().mockReturnValue('ok');
+    installTauriMock({ media_download: download, group_cancel: () => undefined });
+
+    await mediaStore.downloadGroup(group.id, { trackType: TrackType.both });
+    await mediaStore.pauseGroup(group.id);
+    diagnostics.diagnostics.leader = [{} as MediaDiagnostic];
+    diagnostics.fatals[group.id] = {} as MediaFatal;
+
+    if (mode === 'single') await mediaStore.resumeGroup(group.id);
+    else mediaStore.resumeAllGroups();
+    await vi.waitFor(() => expect(download).toHaveBeenCalledTimes(2));
+    expect(diagnostics.diagnostics.leader).toBeUndefined();
+    expect(diagnostics.fatals[group.id]).toBeUndefined();
+  });
+
+  it('ignores a late fatal from the attempt that was paused', async () => {
+    const group = createPlaylistGroup('late-fatal', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    const download = vi.fn<(_cmd: string, _args?: unknown) => string>().mockReturnValue('ok');
+    installTauriMock({ media_download: download });
+    const mediaStore = useMediaStore();
+    await mediaStore.downloadGroup(group.id, { trackType: TrackType.both });
+    const oldAttempt = (download.mock.calls[0][1] as { attemptId?: string }).attemptId;
+    await mediaStore.pauseGroup(group.id);
+    await mediaStore.resumeGroup(group.id);
+    const newAttempt = (download.mock.calls[1][1] as { attemptId?: string }).attemptId;
+    const fatal = { groupId: group.id, id: 'leader', exitCode: 1, internal: true, message: 'failure', details: null, timestamp: Date.now() };
+    const diagnostics = useMediaDiagnosticsStore();
+    diagnostics.processMediaFatalPayload({ ...fatal, attemptId: oldAttempt ?? 'stale' });
+    expect(useMediaStateStore().getGroupState(group.id)).toBe(MediaState.downloading);
+    expect(diagnostics.findLastFatalByGroupId(group.id)).toBeUndefined();
+    expect(oldAttempt).toBeTruthy();
+    expect(newAttempt).not.toBe(oldAttempt);
+    diagnostics.processMediaFatalPayload({ ...fatal, attemptId: newAttempt });
+    expect(useMediaStateStore().getGroupState(group.id)).toBe(MediaState.error);
+  });
+
   it('submits subtitle-only tasks without AV formats and preserves explicit languages', async () => {
     let payload: Record<string, unknown> | undefined;
     installTauriMock({
@@ -160,7 +295,7 @@ describe('media store', () => {
     delete group.entries;
     delete group.items.leader.entries;
     useMediaGroupStore().createGroup(group);
-    useMediaOptionsStore().setOverrides(group.id, { subtitles: { languages: ['ja'], embedSubtitles: true } });
+    useMediaOptionsStore().setOverrides(group.id, { subtitles: { enabled: false, languages: ['ja'], embedSubtitles: true } });
     await useMediaStore().downloadSubtitles(group.id);
     expect(payload).toMatchObject({ items: [{
       subtitlesOnly: true,

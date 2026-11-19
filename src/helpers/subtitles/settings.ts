@@ -18,7 +18,7 @@ function hasSelectedLanguages(languages: string[]): boolean {
 export function createSubtitleSettings(settings: SubtitleSettings): SubtitleSettings {
   const languages = sanitizeSubtitleLanguages(settings.languages);
   const chinesePriority = settings.chinesePriority ?? true;
-  const enabled = chinesePriority || hasSelectedLanguages(languages);
+  const enabled = settings.enabled !== false && (chinesePriority || hasSelectedLanguages(languages));
 
   return {
     chinesePriority,
@@ -34,7 +34,7 @@ export function mergeSubtitleSettings(
   base: SubtitleSettings,
   override?: SubtitleOverrides,
 ): SubtitleSettings {
-  return createSubtitleSettings({
+  const merged = createSubtitleSettings({
     ...base,
     ...override,
     chinesePriority: override?.chinesePriority ?? (
@@ -45,6 +45,7 @@ export function mergeSubtitleSettings(
     languages: override?.languages ?? base.languages,
     formatPreference: override?.formatPreference ?? base.formatPreference,
   });
+  return { ...merged, enabled: override?.enabled ?? merged.enabled };
 }
 
 export function areSubtitleSettingsEqual(a: SubtitleSettings, b: SubtitleSettings): boolean {

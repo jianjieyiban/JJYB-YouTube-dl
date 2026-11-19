@@ -110,6 +110,12 @@ pub fn kill_platform_process(platform: &PlatformProcess) {
       unsafe {
         libc::killpg(pgid, libc::SIGTERM);
       }
+      // The supervisor still owns the unreaped leader, so this group ID
+      // cannot be recycled during the grace period.
+      std::thread::sleep(std::time::Duration::from_millis(200));
+      unsafe {
+        libc::killpg(pgid, libc::SIGKILL);
+      }
     }
   }
 

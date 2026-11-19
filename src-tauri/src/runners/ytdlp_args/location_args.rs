@@ -4,13 +4,13 @@ use crate::state::config_models::OutputSettings;
 use crate::state::preferences_models::PathPreferences;
 use std::path::PathBuf;
 
-pub fn build_location_args(
+pub fn build_output_template(
   track_type: &TrackType,
   template_context: &TemplateContext,
   output_settings: &OutputSettings,
   path_preferences: &PathPreferences,
   fallback_dir: PathBuf,
-) -> Vec<String> {
+) -> PathBuf {
   let global_dir = output_settings
     .download_dir
     .as_ref()
@@ -35,7 +35,5 @@ pub fn build_location_args(
     .unwrap_or_else(|| global_dir.clone());
 
   let output_path = base_dir.join(prefix_dir).join(filename);
-  let rendered_output = template_context.render_template(output_path.to_string_lossy().as_ref());
-
-  vec!["-o".into(), rendered_output]
+  PathBuf::from(template_context.render_template(output_path.to_string_lossy().as_ref()))
 }

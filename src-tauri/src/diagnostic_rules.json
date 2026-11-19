@@ -1,6 +1,15 @@
 {
   "rules": [
     {
+      "code": "outputPathConflict",
+      "appliesTo": "error",
+      "patterns": [
+        { "kind": "substr", "value": "[WinError 183]" },
+        { "kind": "substr", "value": "output publish path conflict" },
+        { "kind": "regex", "value": "(?i)(?:failed to publish output|output publication failed:).*(?:already exists|file exists|os error 183\\b)" }
+      ]
+    },
+    {
       "code": "signInRequired",
       "appliesTo": "error",
       "patterns": [
@@ -182,6 +191,30 @@
       ]
     },
     {
+      "code": "cookieDatabaseCopyFailed",
+      "appliesTo": "error",
+      "patterns": [
+        { "kind": "regex", "value": "(?i)could not copy [^\\r\\n]*cookie database" }
+      ]
+    },
+    {
+      "code": "cookieDecryptionFailed",
+      "appliesTo": "error",
+      "patterns": [
+        { "kind": "substr", "value": "Failed to decrypt with DPAPI" }
+      ]
+    },
+    {
+      "code": "diskSpaceInsufficient",
+      "appliesTo": "error",
+      "patterns": [
+        { "kind": "substr", "value": "[Errno 28]" },
+        { "kind": "substr", "value": "No space left on device" },
+        { "kind": "substr", "value": "[WinError 112]" },
+        { "kind": "substr", "value": "There is not enough space on the disk" }
+      ]
+    },
+    {
       "code": "permissionDenied",
       "appliesTo": "error",
       "patterns": [
@@ -257,6 +290,31 @@
       "appliesTo": "error",
       "patterns": [
         { "kind": "substr", "value": "Unable to connect to proxy" }
+      ]
+    },
+    {
+      "code": "networkTimeout",
+      "appliesTo": "error",
+      "patterns": [
+        { "kind": "substr", "value": "The read operation timed out" },
+        { "kind": "substr", "value": "Connection timed out" },
+        { "kind": "substr", "value": "Read timed out" },
+        { "kind": "substr", "value": "[WinError 10060]" },
+        { "kind": "substr", "value": "[Errno 10060]" }
+      ]
+    },
+    {
+      "code": "networkConnectionFailed",
+      "appliesTo": "error",
+      "patterns": [
+        { "kind": "substr", "value": "Connection refused" },
+        { "kind": "substr", "value": "Connection reset" },
+        { "kind": "substr", "value": "Network is unreachable" },
+        { "kind": "substr", "value": "No route to host" },
+        { "kind": "substr", "value": "[WinError 10061]" },
+        { "kind": "substr", "value": "[WinError 10054]" },
+        { "kind": "substr", "value": "[Errno 10061]" },
+        { "kind": "substr", "value": "[Errno 10054]" }
       ]
     }
   ],

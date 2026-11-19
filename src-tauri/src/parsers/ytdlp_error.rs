@@ -239,9 +239,14 @@ fn normalize_skip_message(line: &str) -> Option<String> {
 fn split_component(s: &'_ str) -> (Option<String>, Cow<'_, str>) {
   if let Some(rest) = s.strip_prefix('[') {
     if let Some(end) = rest.find(']') {
-      let comp = rest[..end].to_string();
-      let msg = rest[end + 1..].trim();
-      return (Some(comp), Cow::Borrowed(msg));
+      let comp = &rest[..end];
+      let is_os_error = comp.split_once(' ').is_some_and(|(kind, _)| {
+        kind.eq_ignore_ascii_case("WinError") || kind.eq_ignore_ascii_case("Errno")
+      });
+      if !is_os_error {
+        let msg = rest[end + 1..].trim();
+        return (Some(comp.to_string()), Cow::Borrowed(msg));
+      }
     }
   }
   (None, Cow::Borrowed(s))
@@ -279,6 +284,72 @@ mod tests {
       "group-id",
       DiagnosticMatcher::from_json(r#"{"rules":[],"fallbackCode":"unknown"}"#).unwrap(),
     )
+  }
+
+  #[test]
+  fn classifies_output_path_conflicts_and_preserves_raw_error() {
+    let matcher = DiagnosticMatcher::from_json(include_str!("../diagnostic_rules.json")).unwrap();
+    let parser = YtdlpErrorParser::new("item-id", "group-id", matcher);
+    for (line, code) in [
+      (
+        "ERROR: [WinError 183] 当文件已存在时，无法创建该文件。",
+        "outputPathConflict",
+      ),
+      (
+        "ERROR: Postprocessing: [WinError 183] Cannot create a file when that file already exists",
+        "outputPathConflict",
+      ),
+      (
+        "ERROR: Failed to publish output: destination already exists",
+        "outputPathConflict",
+      ),
+      (
+        "ERROR: Output publication failed: (os error 183)",
+        "outputPathConflict",
+      ),
+      (
+        "ERROR: Output publication failed: access denied (os error 5)",
+        "unknown",
+      ),
+      (
+        "ERROR: Output publish path conflict: destination.mp4",
+        "outputPathConflict",
+      ),
+      ("ERROR: [WinError 1830] Unrelated failure", "unknown"),
+      (
+        "ERROR: Failed to publish output: permission denied",
+        "unknown",
+      ),
+      ("WARNING: [WinError 183] File exists", "unknown"),
+    ] {
+      let event = parser.parse_line(line).unwrap();
+      assert_eq!(event.code, code, "{line}");
+      assert_eq!(event.raw, line);
+    }
+  }
+
+  #[test]
+  fn preserves_leading_errno_as_part_of_the_message() {
+    let matcher = DiagnosticMatcher::from_json(include_str!("../diagnostic_rules.json")).unwrap();
+    let parser = YtdlpErrorParser::new("item-id", "group-id", matcher);
+
+    for (message, code) in [
+      ("[Errno 28] Write failed", "diskSpaceInsufficient"),
+      ("[Errno 10061] Connection failed", "networkConnectionFailed"),
+    ] {
+      let line = format!("ERROR: {message}");
+      let event = parser.parse_line(&line).unwrap();
+      assert_eq!(event.component, None);
+      assert_eq!(event.message, message);
+      assert_eq!(event.code, code);
+      assert_eq!(event.raw, line);
+    }
+
+    let event = parser
+      .parse_line("ERROR: [youtube] abcdefghijk: [Errno 28] Write failed")
+      .unwrap();
+    assert_eq!(event.component.as_deref(), Some("youtube"));
+    assert_eq!(event.message, "[Errno 28] Write failed");
   }
 
   #[test]

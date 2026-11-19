@@ -1,15 +1,19 @@
 import { ref } from 'vue';
 import { defineStore } from 'pinia';
 import { MediaDestinationPayload } from '../../tauri/types/destination';
+import { useMediaGroupStore } from './group';
 
 export type MediaDestination = { path: string; confidence: number };
 
 export const useMediaDestinationStore = defineStore('media-destination', () => {
   const destinations = ref<Record<string, MediaDestination[]>>({});
+  const groupStore = useMediaGroupStore();
 
   const addDestination = (groupId: string, destination: MediaDestination) => {
-    destinations.value[groupId] = destinations.value[groupId] ?? [];
-    destinations.value[groupId].push(destination);
+    const paths = destinations.value[groupId] ??= [];
+    const existing = paths.find(path => path.path === destination.path);
+    if (existing) existing.confidence = Math.max(existing.confidence, destination.confidence);
+    else paths.push(destination);
   };
 
   const getDestinations = (groupId: string): MediaDestination[] => {
@@ -27,6 +31,7 @@ export const useMediaDestinationStore = defineStore('media-destination', () => {
   };
 
   function processMediaDestinationPayload(payload: MediaDestinationPayload) {
+    if (!groupStore.acceptsMediaEvent(payload)) return;
     addDestination(payload.groupId, payload.destination);
   }
 

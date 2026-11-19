@@ -52,6 +52,10 @@
     <p v-else class="flex items-center">
       {{ t('media.steps.configure.metadata.items', { amount: group.total, details: itemOutcomeDisplay }) }}
     </p>
+    <label v-if="hasSubtitleTracks" class="col-span-2 flex w-fit cursor-pointer items-center gap-2 text-sm">
+      <input v-model="downloadSubtitles" :disabled="subtitlesOnly" type="checkbox" class="checkbox checkbox-sm" />
+      <span>{{ t('subtitles.options.enable.taskLabel') }}</span>
+    </label>
   </div>
 </template>
 
@@ -71,6 +75,8 @@ import MediaEncodingOptions from '../MediaEncodingOptions.vue';
 import MediaTrackOptions from '../MediaTrackOptions.vue';
 import { InformationCircleIcon } from '@heroicons/vue/24/outline';
 import { countSkippedDiagnostics } from '../../../helpers/skippedDiagnostics.ts';
+import { getAvailableSubtitleLanguages } from '../../../helpers/subtitles/languages';
+import { mergeSubtitleSettings } from '../../../helpers/subtitles/settings';
 import { useMediaDiagnosticsStore } from '../../../stores/media/diagnostics.ts';
 
 const i18n = useI18n();
@@ -89,7 +95,7 @@ const diagnosticsStore = useMediaDiagnosticsStore();
 const isSizeLoading = ref(false);
 const optionsStore = useMediaOptionsStore();
 const expandedOptionsType = computed(() => settingsStore.settings.appearance.expandedOptions);
-const showExpandedOptions = computed(() => expandedOptionsType.value === 'encodings' || expandedOptionsType.value === 'tracks');
+const showExpandedOptions = computed(() => hasSubtitleTracks.value || expandedOptionsType.value === 'encodings' || expandedOptionsType.value === 'tracks');
 const unavailableTrackSuffix = computed(() => t('media.steps.configure.tracks.unavailableForSelectedResolution'));
 const availableTrackPrefix = computed(() => t('media.steps.configure.tracks.availableInResolutions'));
 
@@ -116,7 +122,26 @@ const itemOutcomeDisplay = computed(() => {
 
 const selectedOptions = computed({
   get: () => optionsStore.getOptions(group.id),
-  set: (value: DownloadOptions) => optionsStore.setOptions(group.id, value),
+  set: (value: DownloadOptions) => {
+    const subtitlesOnly = optionsStore.getOptions(group.id)?.subtitlesOnly;
+    optionsStore.setOptions(group.id, subtitlesOnly === undefined ? value : { ...value, subtitlesOnly });
+  },
+});
+
+const hasSubtitleTracks = computed(() => {
+  const { manual, auto } = getAvailableSubtitleLanguages(group.items);
+  return manual.length > 0 || auto.length > 0;
+});
+const subtitlesOnly = computed(() => selectedOptions.value?.subtitlesOnly ?? false);
+const downloadSubtitles = computed({
+  get: () => subtitlesOnly.value || mergeSubtitleSettings(
+    settingsStore.settings.subtitles,
+    optionsStore.getOverrides(group.id)?.subtitles,
+  ).enabled,
+  set: (enabled: boolean) => {
+    const overrides = optionsStore.getOverrides(group.id);
+    optionsStore.setOverrides(group.id, { ...overrides, subtitles: { ...overrides?.subtitles, enabled } });
+  },
 });
 
 const selectedEncodings = computed({

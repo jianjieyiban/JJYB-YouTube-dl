@@ -1,12 +1,14 @@
 export interface MediaProgressStagePayload {
   id: string;
   groupId: string;
+  attemptId?: string;
   stage: ProgressStage;
 }
 
 export interface MediaProgressPayload {
   id: string;
   groupId: string;
+  attemptId?: string;
   category: ProgressCategory;
   downloadedBytes?: number;
   totalBytes?: number;
@@ -17,6 +19,7 @@ export interface MediaProgressPayload {
 export interface MediaProgressPayload {
   id: string;
   groupId: string;
+  attemptId?: string;
   category: ProgressCategory;
   percentage?: number;
   speedBps?: number;
@@ -26,6 +29,7 @@ export interface MediaProgressPayload {
 export interface MediaGroupProgressPayload extends MediaItemsProgress {
   id: string;
   groupId: string;
+  attemptId?: string;
   speedBps?: number;
 }
 
@@ -39,6 +43,7 @@ export interface MediaItemsProgress {
 export interface MediaProgressCompletePayload {
   id: string;
   groupId: string;
+  attemptId?: string;
 }
 
 export enum ProgressCategory {

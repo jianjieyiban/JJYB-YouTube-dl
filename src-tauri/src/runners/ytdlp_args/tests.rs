@@ -1,4 +1,4 @@
-use super::{build_format_args, build_input_filter_args, build_location_args, build_output_args};
+use super::{build_format_args, build_input_filter_args, build_output_args, build_output_template};
 use crate::models::download::{
   AudioFormat, AudioPostprocessPreset, DownloadSection, FormatOptions, InputFilterOptions,
   PartialDownloadOverride, PlaylistMode, TranscodePolicy, VideoContainer, VideoPostprocessMode,
@@ -897,7 +897,7 @@ fn location_args_use_track_specific_preferences() {
     audio_directory_template: "%(uploader)s".into(),
   };
 
-  let args = build_location_args(
+  let args = build_output_template(
     &TrackType::Video,
     &template_context,
     &output,
@@ -905,6 +905,5 @@ fn location_args_use_track_specific_preferences() {
     PathBuf::from("/tmp/fallback"),
   );
 
-  assert_eq!(args[0], "-o");
-  assert!(args[1].contains("/tmp/video"));
+  assert!(args.starts_with("/tmp/video"));
 }

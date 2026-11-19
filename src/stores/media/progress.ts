@@ -26,6 +26,7 @@ export const useMediaProgressStore = defineStore('media-progress', () => {
   const speedHoldMs = 1500;
 
   function processMediaProgressPayload(payload: MediaProgressPayload) {
+    if (!groupStore.acceptsMediaEvent(payload)) return;
     const existing = progress.value[payload.id];
     if (existing) {
       Object.assign(existing, {
@@ -44,6 +45,7 @@ export const useMediaProgressStore = defineStore('media-progress', () => {
   }
 
   function processMediaProgressStagePayload(payload: MediaProgressStagePayload) {
+    if (!groupStore.acceptsMediaEvent(payload)) return;
     const existing = progress.value[payload.id];
     if (existing) {
       existing.stage = payload.stage;
@@ -56,8 +58,10 @@ export const useMediaProgressStore = defineStore('media-progress', () => {
   }
 
   function processMediaCompletePayload(payload: MediaProgressCompletePayload) {
-    stateStore.setState(payload.id, MediaState.done);
+    if (!groupStore.acceptsMediaEvent(payload)) return;
     const group = groupStore.findGroupById(payload.groupId);
+    if (!group?.items[payload.id] || stateStore.getState(payload.id) === MediaState.done) return;
+    stateStore.setState(payload.id, MediaState.done);
     if (group.isCombined) {
       const items = Object.values(group.items);
       const allItemsAreTerminal = !items.some((item) => {
