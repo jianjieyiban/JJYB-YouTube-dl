@@ -1,6 +1,6 @@
 # 参与 JJYB-YouTube-dl 开发
 
-**版本：3.3.1 · 修改日期：2026-11-17。** 本项目基于 [Open Video Downloader / youtube-dl-gui](https://github.com/jely2002/youtube-dl-gui)，使用 Vue 3、TypeScript、Tauri 2 与 Rust。保留上游及第三方版权，沿用 AGPL-3.0-or-later，不将衍生修改表述为完全原创。
+**版本：3.4.3 · 修改日期：2026-11-19。** 本项目基于 [Open Video Downloader / youtube-dl-gui](https://github.com/jely2002/youtube-dl-gui)，使用 Vue 3、TypeScript、Tauri 2 与 Rust。保留上游及第三方版权，沿用 AGPL-3.0-or-later，不将衍生修改表述为完全原创。
 
 ## 环境与构建
 
@@ -52,7 +52,7 @@ E2E 首次需安装 Playwright 浏览器及系统依赖。记录真实环境、�
 
 当前范围是 Windows x64 便携版，没有安装器和其他平台已验收产物。公开包必须从白名单资源生成，不能直接压缩个人运行目录；需要附对应源码、vendor、许可证和修改说明。自有仓库为 [jianjieyiban/JJYB-YouTube-dl](https://github.com/jianjieyiban/JJYB-YouTube-dl)，公开资产以实际 Release 为准。仅推送源码不等于已发布 Release。
 
-应用更新仅面向自有仓库 `releases/latest/download/latest.json`，当前公钥为空，自动更新禁用；不得回退上游、跳过验签或伪造未签名更新清单。签名工具清单 Pages 也需显式启用 `JJYB_ENABLE_SIGNED_MANIFEST` 并配置签名环境，与 Tauri 应用更新独立。未来需两个真实签名 Release 验证完整升级链。Tauri 更新签名不等于 Windows Authenticode。
+便携应用更新仅面向自有仓库最新正式稳定 Release 的 `portable-latest.json` 与 `portable-latest.json.sig`，使用内置可信公钥验证 Ed25519 签名。3.4.3 已发布签名清单；不得回退上游、跳过验签或伪造未签名清单。正式便携发行工作流需要配置对应签名环境，不能以旧 `latest.json` 安装器机制替代。签名工具清单 Pages 需显式启用 `JJYB_ENABLE_SIGNED_MANIFEST` 并配置签名环境，与应用更新独立。真实跨版本升级全链路仍需两个正式签名 Release 验证。更新清单签名不等于 Windows Authenticode。
 
 ## 隐私、提交与许可
 
