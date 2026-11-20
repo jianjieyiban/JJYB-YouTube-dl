@@ -92,9 +92,6 @@ fn ensure_parent(path: &Path) -> io::Result<()> {
 }
 
 fn atomic_file_replace(tmp: &Path, dst: &Path) -> io::Result<()> {
-  if dst.exists() {
-    std::fs::remove_file(dst)?;
-  }
   std::fs::rename(tmp, dst)
 }
 
@@ -465,4 +462,36 @@ fn list_tree(root: &Path, max: usize) -> EntriesDisplay {
   let mut v = Vec::new();
   walk(&mut v, root, root, max);
   EntriesDisplay(v)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn atomic_file_replace_preserves_destination_when_source_is_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let tmp = dir.path().join("tool.tmp");
+    let dst = dir.path().join("tool.exe");
+    std::fs::write(&dst, b"old tool").unwrap();
+
+    let err = atomic_file_replace(&tmp, &dst).unwrap_err();
+
+    assert_eq!(err.kind(), io::ErrorKind::NotFound);
+    assert_eq!(std::fs::read(&dst).unwrap(), b"old tool");
+  }
+
+  #[test]
+  fn atomic_file_replace_replaces_existing_destination() {
+    let dir = tempfile::tempdir().unwrap();
+    let tmp = dir.path().join("tool.tmp");
+    let dst = dir.path().join("tool.exe");
+    std::fs::write(&tmp, b"new tool").unwrap();
+    std::fs::write(&dst, b"old tool").unwrap();
+
+    atomic_file_replace(&tmp, &dst).unwrap();
+
+    assert_eq!(std::fs::read(&dst).unwrap(), b"new tool");
+    assert!(!tmp.exists());
+  }
 }

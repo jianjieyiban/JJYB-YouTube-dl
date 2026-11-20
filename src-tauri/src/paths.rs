@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
@@ -12,11 +13,21 @@ pub struct PathsManager {
   is_portable_app: bool,
   app_dir: PathBuf,
   bin_dir: PathBuf,
+  managed_bin_dir: PathBuf,
 }
 
 impl PathsManager {
   pub fn new(app: &AppHandle) -> Self {
-    let (app_dir, is_portable_app, is_snap_app) = Self::resolve_app_dir(app);
+    let app_data_dir = app
+      .path()
+      .app_data_dir()
+      .expect("failed to resolve app data dir");
+    let (app_dir, is_portable_app, is_snap_app) = Self::resolve_app_dir_with(
+      &app.config().identifier,
+      app_data_dir.clone(),
+      Self::resolve_executable_path(),
+      Self::resolve_snap_user_data_dir(),
+    );
     let (bin_dir, is_microsoft_store_app) = Self::resolve_bin_dir(app_dir.clone());
 
     let mut environment_type = "installed";
@@ -57,6 +68,7 @@ impl PathsManager {
       is_portable_app,
       app_dir,
       bin_dir,
+      managed_bin_dir: app_data_dir.join(BIN_DIR),
     }
   }
 
@@ -74,16 +86,31 @@ impl PathsManager {
   }
 
   pub fn tool_dirs(&self) -> Vec<PathBuf> {
+    Self::tool_dirs_with(
+      Self::resolve_executable_path(),
+      self.bin_dir.clone(),
+      self.managed_bin_dir.clone(),
+      std::env::var_os("PATH"),
+    )
+  }
+
+  fn tool_dirs_with(
+    exe_dir: Option<PathBuf>,
+    bin_dir: PathBuf,
+    managed_bin_dir: PathBuf,
+    path_var: Option<OsString>,
+  ) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    if let Some(exe_dir) = Self::resolve_executable_path() {
+    if let Some(exe_dir) = exe_dir {
       let portable = exe_dir.join(PORTABLE_DIR);
-      if self.app_dir == portable {
+      if bin_dir == portable.join(BIN_DIR) {
         dirs.push(portable.join(BIN_DIR));
       }
       dirs.push(exe_dir.join(BIN_DIR));
     }
-    dirs.push(self.bin_dir.clone());
-    if let Some(path) = std::env::var_os("PATH") {
+    dirs.push(bin_dir);
+    dirs.push(managed_bin_dir);
+    if let Some(path) = path_var {
       dirs.extend(std::env::split_paths(&path).filter(|dir| dir.is_absolute()));
     }
     let mut unique = Vec::new();
@@ -100,19 +127,6 @@ impl PathsManager {
       app_dir,
       Self::resolve_executable_path(),
       Self::resolve_snap_user_common_dir(),
-    )
-  }
-
-  fn resolve_app_dir(app: &AppHandle) -> (PathBuf, bool, bool) {
-    let app_data_dir = app
-      .path()
-      .app_data_dir()
-      .expect("failed to resolve app data dir");
-    Self::resolve_app_dir_with(
-      &app.config().identifier,
-      app_data_dir,
-      Self::resolve_executable_path(),
-      Self::resolve_snap_user_data_dir(),
     )
   }
 
@@ -323,5 +337,44 @@ mod tests {
 
     assert_eq!(resolved, app_dir.join(BIN_DIR));
     assert!(!is_microsoft_store);
+  }
+
+  #[test]
+  fn tool_dirs_include_managed_fallback_in_portable_mode() {
+    let base = temp_dir("tool-dirs-portable-managed");
+    let exe_dir = base.join("exe");
+    let portable_bin = exe_dir.join(PORTABLE_DIR).join(BIN_DIR);
+    let managed_bin = base.join("managed").join(BIN_DIR);
+    fs::create_dir_all(&portable_bin).unwrap();
+
+    let dirs = PathsManager::tool_dirs_with(
+      Some(exe_dir.clone()),
+      portable_bin.clone(),
+      managed_bin,
+      None,
+    );
+
+    assert_eq!(dirs[0], portable_bin);
+    assert_eq!(dirs[1], exe_dir.join(BIN_DIR));
+    assert!(dirs.contains(&base.join("managed").join(BIN_DIR)));
+  }
+
+  #[test]
+  fn tool_dirs_deduplicate_managed_and_bin_dir() {
+    let base = temp_dir("tool-dirs-dedup");
+    let bin_dir = base.join("app").join(BIN_DIR);
+    let path_var =
+      std::env::join_paths([base.join("path-a"), base.join("path-a").join("sub")]).ok();
+
+    let dirs = PathsManager::tool_dirs_with(None, bin_dir.clone(), bin_dir.clone(), path_var);
+
+    assert_eq!(
+      dirs,
+      vec![
+        bin_dir,
+        base.join("path-a"),
+        base.join("path-a").join("sub")
+      ]
+    );
   }
 }
