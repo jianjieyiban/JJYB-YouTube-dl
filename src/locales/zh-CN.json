@@ -893,7 +893,10 @@
       "legendLabel": "选择应用的哪些部分自动更新。",
       "updateBinaries": {
         "label": "自动更新工具:",
-        "hint": "OVD 使用 yt-dlp 与 ffmpeg 等工具下载视频。启用此选项可保持工具为最新版本。"
+        "hint": "OVD 使用 yt-dlp 与 ffmpeg 等工具下载视频。启用此选项可保持工具为最新版本。",
+        "check": "检查工具更新",
+        "upToDate": "工具已是最新版本",
+        "failed": "检查工具更新失败：{error}"
       },
       "updateApp": {
         "label": "自动更新应用:",

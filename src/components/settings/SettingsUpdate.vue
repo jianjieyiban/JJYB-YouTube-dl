@@ -14,7 +14,7 @@
     />
     <p class="label">{{ t('settings.update.updateBinaries.hint') }}</p>
     <button type="button" class="btn btn-subtle" :disabled="checkingBinaries" @click="checkBinaryUpdates">
-      {{ checkingBinaries ? t('common.pleaseWait') : '检查工具更新' }}
+      {{ checkingBinaries ? t('common.pleaseWait') : t('settings.update.updateBinaries.check') }}
     </button>
     <p v-if="binaryUpdateMessage" role="status" class="label">{{ binaryUpdateMessage }}</p>
     <label class="font-semibold mt-2" for="updateApp">
@@ -34,7 +34,7 @@
     </p>
     <div v-else class="flex flex-wrap items-center gap-2">
       <button class="btn btn-sm" :disabled="updater.isUpdating" @click="updater.check(true)">{{ t('updater.check') }}</button>
-      <button v-if="updater.checkResult?.available || updater.lastError" class="btn btn-info btn-sm" :disabled="updater.isUpdating" @click="updater.updateAndRestart()">{{ t('updater.updateAndRestart') }}</button>
+      <button v-if="updater.checkResult?.available && !updater.lastError" class="btn btn-info btn-sm" :disabled="updater.isUpdating" @click="updater.updateAndRestart()">{{ t('updater.updateAndRestart') }}</button>
       <p role="status" aria-live="polite">
         <template v-if="updater.isUpdating">{{ t(`updater.${updater.phase}`) }}</template>
         <template v-else-if="updater.lastError">{{ t('updater.failed') }} {{ updater.lastError }}</template>
@@ -66,10 +66,10 @@ const checkBinaryUpdates = async () => {
     if (tools.length > 0) {
       await router.push({ path: '/install', query: { mode: 'update' } });
     } else {
-      binaryUpdateMessage.value = '工具已是最新版本';
+      binaryUpdateMessage.value = t('settings.update.updateBinaries.upToDate');
     }
   } catch (error) {
-    binaryUpdateMessage.value = `检查工具更新失败：${String(error)}`;
+    binaryUpdateMessage.value = t('settings.update.updateBinaries.failed', { error: String(error) });
   } finally {
     checkingBinaries.value = false;
   }

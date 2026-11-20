@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { defineComponent, nextTick, reactive } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import SettingsAppTab from '../../src/views/app/settings/SettingsAppTab.vue';
 import SettingsNetworkTab from '../../src/views/app/settings/SettingsNetworkTab.vue';
 import SettingsSystemTab from '../../src/views/app/settings/SettingsSystemTab.vue';
 import SettingsAboutTab from '../../src/views/app/settings/SettingsAboutTab.vue';
+import SettingsUpdate from '../../src/components/settings/SettingsUpdate.vue';
 import { i18n } from '../../src/i18n';
 import { defaultSettings, type Settings } from '../../src/tauri/types/config';
 import { TranscodePolicy } from '../../src/tauri/types/media';
@@ -17,6 +18,15 @@ const reset = vi.fn();
 const showToast = vi.fn();
 const setTheme = vi.fn();
 const openInternalPath = vi.fn();
+const checkBinaryUpdates = vi.fn();
+
+vi.mock('../../src/stores/binaries', () => ({
+  useBinariesStore: () => ({ checkUpdates: checkBinaryUpdates }),
+}));
+
+vi.mock('../../src/stores/updater', () => ({
+  useUpdaterStore: () => ({ loadConfiguration: vi.fn() }),
+}));
 
 const settingsState = reactive<Settings>(structuredClone(defaultSettings));
 
@@ -123,6 +133,44 @@ function createSettingsRouter() {
   });
   return router;
 }
+
+describe('SettingsUpdate tool translations', () => {
+  it.each([
+    { scenario: 'button', result: [], expected: 'Check for tool updates' },
+    { scenario: 'up-to-date status', result: [], expected: 'Tools are up to date' },
+    { scenario: 'failure status', error: new Error('offline'), expected: 'Failed to check for tool updates: Error: offline' },
+  ])('renders the $scenario in English', async ({ scenario, result, error, expected }) => {
+    const previousLocale = i18n.global.locale.value;
+    i18n.global.locale.value = 'en';
+    checkBinaryUpdates.mockReset();
+    if (error) {
+      checkBinaryUpdates.mockRejectedValueOnce(error);
+    } else {
+      checkBinaryUpdates.mockResolvedValueOnce(result);
+    }
+    const router = createSettingsRouter();
+    await router.push('/');
+    await router.isReady();
+    const wrapper = mount(SettingsUpdate, {
+      props: { modelValue: structuredClone(defaultSettings) },
+      global: { plugins: [router, i18n] },
+    });
+    try {
+      const button = wrapper.get('button');
+      if (scenario === 'button') {
+        expect(button.text()).toBe(expected);
+      } else {
+        await button.trigger('click');
+        await flushPromises();
+        expect(checkBinaryUpdates).toHaveBeenCalledTimes(1);
+        expect(wrapper.get('[role="status"]').text()).toBe(expected);
+      }
+    } finally {
+      wrapper.unmount();
+      i18n.global.locale.value = previousLocale;
+    }
+  });
+});
 
 describe('SettingsView', () => {
   it('keeps native language names visible in Chinese and saves the selected language', async () => {

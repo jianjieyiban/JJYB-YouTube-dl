@@ -11,6 +11,7 @@ import { useSettingsStore } from '../../src/stores/settings';
 import { defaultSettings } from '../../src/tauri/types/config';
 import { TrackType, type EntryItem, type MediaAddPayload } from '../../src/tauri/types/media';
 import type { Group } from '../../src/tauri/types/group';
+import { NotificationKind } from '../../src/tauri/types/app';
 
 const { notify, notifyGroup } = vi.hoisted(() => ({
   notify: vi.fn(),
@@ -146,6 +147,294 @@ describe('media store', () => {
     await useMediaStore().downloadThumbnail(group.id);
     expect(payload).toMatchObject({ items: [{ thumbnailOnly: true, subtitlesOnly: false, format: { thumbnailOnly: true, subtitlesOnly: false } }] });
     expect(optionsStore.getOptions(group.id)).toEqual({ trackType: TrackType.both, height: 720 });
+  });
+
+  it.each(['subtitles', 'thumbnail'] as const)('starts a %s-only task for completed media', async (mode) => {
+    const download = vi.fn(() => 'ok');
+    installTauriMock({ media_download: download });
+    const group = createPlaylistGroup(`completed-${mode}`, 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    const stateStore = useMediaStateStore();
+    stateStore.setGroupState(group.id, MediaState.done);
+    const mediaStore = useMediaStore();
+
+    if (mode === 'subtitles') await mediaStore.downloadSubtitles(group.id);
+    else await mediaStore.downloadThumbnail(group.id);
+
+    expect(download).toHaveBeenCalledWith('media_download', expect.objectContaining({
+      items: [expect.objectContaining({
+        id: 'leader', subtitlesOnly: mode === 'subtitles', thumbnailOnly: mode === 'thumbnail',
+      })],
+    }));
+    expect(stateStore.getGroupState(group.id)).toBe(MediaState.downloading);
+    stateStore.setGroupState(group.id, MediaState.done);
+    await mediaStore.resumeGroup(group.id);
+    expect(download).toHaveBeenCalledOnce();
+  });
+
+  it('clears a previous download failure when starting a subtitle task', async () => {
+    installTauriMock({ media_download: () => 'ok' });
+    const group = createPlaylistGroup('failed-subtitles', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    const diagnostics = useMediaDiagnosticsStore();
+    diagnostics.processMediaFatalPayload({ groupId: group.id, id: 'leader', exitCode: 1, internal: false, message: 'HTTP 403', details: null, timestamp: 1 });
+
+    await useMediaStore().downloadSubtitles(group.id);
+
+    expect(group.errored).toBe(0);
+    expect(group.processed).toBe(0);
+    expect(diagnostics.findFatalsByGroupId(group.id)).toEqual([]);
+  });
+
+  it('does not count repeated preparation failures as metadata failures', async () => {
+    installTauriMock({ media_download: () => 'ok' });
+    const group = createPlaylistGroup('repeat-preparation', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    useMediaStateStore().setGroupState(group.id, MediaState.configure);
+    const options = { trackType: TrackType.both, get height(): number {
+      throw new Error('Invalid format');
+    } };
+    const media = useMediaStore();
+    await media.downloadGroup(group.id, options);
+    await media.downloadGroup(group.id, options);
+    await media.downloadSubtitles(group.id);
+    expect(group.errored).toBe(0);
+    expect(group.processed).toBe(0);
+    expect(useMediaDiagnosticsStore().findFatalsByGroupId(group.id)).toEqual([]);
+  });
+
+  it.each([3, 4])('finalizes a partially fetched playlist when the last metadata item fails (split threshold %s)', async (splitThreshold) => {
+    installTauriMock({ media_playlist_expand: () => 'last-metadata-fatal' });
+    useSettingsStore().settings.performance.splitPlaylistThreshold = splitThreshold;
+    const group = createPlaylistGroup('last-metadata-fatal', 3);
+    const groupStore = useMediaGroupStore();
+    groupStore.createGroup(group);
+    const mediaStore = useMediaStore();
+    const states = useMediaStateStore();
+    const finalize = vi.spyOn(mediaStore, 'finalizePlaylistGroup');
+    await mediaStore.expandPlaylistGroup(group.id, { rows: [] });
+    for (const [index, entry] of group.entries!.slice(0, 2).entries()) {
+      mediaStore.processMediaAddPayload({
+        groupId: group.id,
+        total: 3,
+        item: { ...group.items.leader, id: `ready-${index}`, url: entry.videoUrl, entries: undefined, isLeader: false },
+      });
+    }
+    expect(group.processed).toBe(group.total - 1);
+    expect(states.getGroupState(group.id)).toBe(MediaState.fetchingList);
+
+    useMediaDiagnosticsStore().processMediaFatalPayload({ groupId: group.id, id: 'missing-metadata', exitCode: 1, internal: false, message: 'Metadata unavailable', details: null, timestamp: 1 });
+
+    expect(finalize).toHaveBeenCalledOnce();
+    expect(finalize).toHaveBeenCalledWith(group);
+    expect(group.processed).toBe(group.total);
+    expect(group.errored).toBe(1);
+    if (splitThreshold === 3) {
+      expect(groupStore.findGroupById(group.id)).toBeDefined();
+      expect(group.isCombined).toBe(true);
+      expect(states.getGroupState(group.id)).toBe(MediaState.configure);
+      expect(Object.keys(group.items)).toEqual(['leader', 'ready-0', 'ready-1']);
+    } else {
+      expect(groupStore.findGroupById(group.id)).toBeUndefined();
+      const readyGroups = Object.values(groupStore.groups);
+      expect(readyGroups).toHaveLength(2);
+      for (const readyGroup of readyGroups) {
+        expect(states.getGroupState(readyGroup.id)).toBe(MediaState.configure);
+        expect(readyGroup.errored).toBe(0);
+      }
+    }
+    finalize.mockRestore();
+  });
+
+  it.each([
+    [3, 'first'], [3, 'last'], [4, 'first'], [4, 'last'],
+  ] as const)('auto-downloads successful playlist items with threshold %s and fatal %s', async (splitThreshold, fatalOrder) => {
+    const media = useMediaStore();
+    const groups = useMediaGroupStore();
+    const diagnostics = useMediaDiagnosticsStore();
+    useSettingsStore().settings.performance.splitPlaylistThreshold = splitThreshold;
+    let groupId!: string;
+    const download = vi.fn<(_cmd: string, args?: unknown) => string>(() => 'ok');
+    installTauriMock({
+      media_info: (_cmd, args) => {
+        groupId = (args as { groupId: string }).groupId;
+        return groupId;
+      },
+      media_playlist_expand: () => 'ok',
+      media_download: download,
+    });
+    const outcome = media.addUrlBatchAndDownload(['https://example.com/playlist'], false, true)
+      .then(ids => ({ ids, error: undefined }), error => ({ ids: undefined, error }));
+    await flushAsync();
+    const template = createPlaylistGroup('template', 3).items.leader;
+    media.processMediaAddPayload({ groupId, total: 3, item: { ...template } });
+    await flushAsync();
+    const fatal = () => diagnostics.processMediaFatalPayload({ groupId, id: 'missing', exitCode: 1, internal: false, message: 'Metadata unavailable', details: null, timestamp: 1 });
+    if (fatalOrder === 'first') {
+      fatal();
+      expect(useMediaStateStore().getGroupState(groupId)).toBe(MediaState.fetchingList);
+      expect(download).not.toHaveBeenCalled();
+    }
+    for (let index = 0; index < 2; index++) {
+      media.processMediaAddPayload({ groupId, total: 3, item: { ...template, id: `ready-${index}`, entries: undefined, url: template.entries![index].videoUrl } });
+    }
+    if (fatalOrder === 'last') fatal();
+
+    const result = await outcome;
+    expect(result.error).toBeUndefined();
+    expect(result.ids).toHaveLength(splitThreshold === 3 ? 1 : 2);
+    expect(download).toHaveBeenCalledTimes(splitThreshold === 3 ? 1 : 2);
+    const submittedItems = download.mock.calls.flatMap(call => (call as unknown as [string, { items: { id: string }[] }])[1].items);
+    expect(submittedItems.map(item => item.id).sort()).toEqual(['ready-0', 'ready-1']);
+    for (const id of result.ids!) expect(groups.findGroupById(id)).toBeDefined();
+  });
+
+  it.each([2, 3])('rejects an entirely failed playlist and retains its error group (threshold %s)', async (splitThreshold) => {
+    const media = useMediaStore();
+    const groups = useMediaGroupStore();
+    useSettingsStore().settings.performance.splitPlaylistThreshold = splitThreshold;
+    let groupId!: string;
+    const download = vi.fn<(_cmd: string, args?: unknown) => string>(() => 'ok');
+    installTauriMock({
+      media_info: (_cmd, args) => {
+        groupId = (args as { groupId: string }).groupId;
+        return groupId;
+      },
+      media_playlist_expand: () => 'ok',
+      media_download: download,
+    });
+    let settled = false;
+    const outcome = media.addUrlBatchAndDownload(['https://example.com/playlist'], false, true)
+      .then(() => undefined, error => error)
+      .finally(() => { settled = true; });
+    await flushAsync();
+    media.processMediaAddPayload({ groupId, total: 2, item: createPlaylistGroup('template', 2).items.leader });
+    await flushAsync();
+    const group = groups.findGroupById(groupId);
+    for (let index = 0; index < 2; index++) {
+      useMediaDiagnosticsStore().processMediaFatalPayload({ groupId, id: `missing-${index}`, exitCode: 1, internal: false, message: `Metadata unavailable ${index}`, details: null, timestamp: index });
+      if (index === 0) {
+        await flushAsync();
+        expect(settled).toBe(false);
+        expect(useMediaStateStore().getGroupState(groupId)).toBe(MediaState.fetchingList);
+      }
+    }
+
+    expect(await outcome).toBe('Metadata unavailable 1');
+    expect(groups.findGroupById(groupId)).toBe(group);
+    expect(group.processed).toBe(2);
+    expect(group.errored).toBe(2);
+    expect(useMediaStateStore().getGroupState(groupId)).toBe(MediaState.error);
+    expect(download).not.toHaveBeenCalled();
+    expect(notifyGroup.mock.calls.some(call => call[0] === NotificationKind.PlaylistReady)).toBe(false);
+  });
+
+  it.each([2, 3])('rejects an already failed playlist before readiness registration (threshold %s)', async (splitThreshold) => {
+    const media = useMediaStore();
+    useSettingsStore().settings.performance.splitPlaylistThreshold = splitThreshold;
+    let groupId!: string;
+    const download = vi.fn(() => 'ok');
+    installTauriMock({
+      media_info: (_cmd, args) => {
+        groupId = (args as { groupId: string }).groupId;
+        media.processMediaAddPayload({ groupId, total: 2, item: createPlaylistGroup('template', 2).items.leader });
+        for (let index = 0; index < 2; index++) {
+          useMediaDiagnosticsStore().processMediaFatalPayload({ groupId, id: `missing-${index}`, exitCode: 1, internal: false, message: `Metadata unavailable ${index}`, details: null, timestamp: index });
+        }
+        return groupId;
+      },
+      media_playlist_expand: () => 'ok',
+      media_download: download,
+    });
+    let result: unknown = 'pending';
+    const outcome = media.addUrlBatchAndDownload(['https://example.com/playlist'], false, true)
+      .then(() => { result = 'resolved'; }, (error) => {
+        result = error;
+      });
+    await flushAsync();
+
+    expect(result).toBe('Metadata unavailable 1');
+    await outcome;
+    expect(useMediaStateStore().getGroupState(groupId)).toBe(MediaState.error);
+    expect(useMediaGroupStore().findGroupById(groupId)).toBeDefined();
+    expect(download).not.toHaveBeenCalled();
+  });
+
+  it.each(['before', 'after'] as const)('rejects a single-video fatal %s readiness registration', async (timing) => {
+    const media = useMediaStore();
+    let groupId!: string;
+    let itemId!: string;
+    const fatal = () => useMediaDiagnosticsStore().processMediaFatalPayload({ groupId, id: itemId, exitCode: 1, internal: false, message: 'Video unavailable', details: null, timestamp: 1 });
+    const download = vi.fn(() => 'ok');
+    installTauriMock({
+      media_info: (_cmd, args) => {
+        ({ groupId, id: itemId } = args as { groupId: string; id: string });
+        if (timing === 'before') fatal();
+        return groupId;
+      },
+      media_download: download,
+    });
+    let result: unknown = 'pending';
+    const outcome = media.addUrlBatchAndDownload(['https://example.com/video'])
+      .then(() => { result = 'resolved'; }, (error) => {
+        result = error;
+      });
+    await flushAsync();
+    if (timing === 'after') fatal();
+    await flushAsync();
+
+    expect(result).toBe('Video unavailable');
+    await outcome;
+    expect(useMediaStateStore().getGroupState(groupId)).toBe(MediaState.error);
+    expect(download).not.toHaveBeenCalled();
+  });
+
+  it('preserves metadata failures and completed playlist items when resuming', async () => {
+    const download = vi.fn(() => 'ok');
+    installTauriMock({ media_download: download });
+    const group = createPlaylistGroup('partial-resume', 3);
+    useSettingsStore().settings.performance.splitPlaylistThreshold = group.total;
+    group.isCombined = true;
+    group.items.finished = { ...group.items.leader, id: 'finished', entries: undefined, isLeader: false };
+    group.items.failed = { ...group.items.leader, id: 'failed', entries: undefined, isLeader: false };
+    group.processed = 2;
+    useMediaGroupStore().createGroup(group);
+    const states = useMediaStateStore();
+    const diagnostics = useMediaDiagnosticsStore();
+    states.setGroupState(group.id, MediaState.fetchingList);
+    diagnostics.processMediaFatalPayload({ groupId: group.id, id: 'missing-metadata', exitCode: 1, internal: false, message: 'Metadata unavailable', details: null, timestamp: 1 });
+    states.setGroupState(group.id, MediaState.configure);
+    await useMediaStore().downloadGroup(group.id, { trackType: TrackType.both });
+    download.mockClear();
+    states.setState('finished', MediaState.done);
+    diagnostics.processMediaFatalPayload({ groupId: group.id, id: 'failed', exitCode: 1, internal: false, message: 'Download failed', details: null, timestamp: 1 });
+    states.setState('leader', MediaState.pausedList);
+
+    await useMediaStore().resumeGroup(group.id);
+
+    expect(group.errored).toBe(1);
+    expect(group.processed).toBe(3);
+    expect(states.getState('finished')).toBe(MediaState.done);
+    expect(download).toHaveBeenCalledWith('media_download', expect.objectContaining({ items: [expect.objectContaining({ id: 'failed' })] }));
+    expect(diagnostics.findFatalsByGroupId(group.id)).toMatchObject([{ id: 'missing-metadata', message: 'Metadata unavailable' }]);
+  });
+
+  it('does not redownload completed media for an ordinary download', async () => {
+    const download = vi.fn(() => 'ok');
+    installTauriMock({ media_download: download });
+    const group = createPlaylistGroup('completed-ordinary', 1);
+    delete group.entries;
+    delete group.items.leader.entries;
+    useMediaGroupStore().createGroup(group);
+    useMediaStateStore().setGroupState(group.id, MediaState.done);
+    await useMediaStore().downloadGroup(group.id, { trackType: TrackType.both });
+    expect(download).not.toHaveBeenCalled();
   });
 
   it.each(['ordinary', 'bulk'])('keeps the %s job subtitle choice when resuming and retrying', async (mode) => {

@@ -79,13 +79,48 @@ describe('application updater', () => {
     expect(store.phase).toBe('error');
   });
 
-  it('shows errors and a single explicit update and restart action', () => {
+  it('shows errors with a check action instead of promising a restart', async () => {
     const store = useUpdaterStore();
-    store.processUpdaterError('signature rejected');
+    store.processUpdaterError('HTTP 403');
+    vi.mocked(invoke).mockResolvedValueOnce(configured)
+      .mockResolvedValueOnce({ ...configured, available: false, currentVersion: '1', availableVersion: null });
     const wrapper = mount(TheUpdater);
-    expect(wrapper.text()).toContain('signature rejected');
-    expect(wrapper.text()).toContain('updater.updateAndRestart');
-    expect(wrapper.text()).not.toContain('common.install');
+    expect(wrapper.text()).toContain('HTTP 403');
+    expect(wrapper.text()).not.toContain('updater.updateAndRestart');
+    expect(wrapper.text()).not.toContain('updater.install.subtitle');
+    const check = wrapper.findAll('button').find(button => button.text() === 'updater.check');
+    expect(check).toBeDefined();
+    await check!.trigger('click');
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('updater_check'));
+    expect(invoke).not.toHaveBeenCalledWith('updater_download');
+    expect(invoke).not.toHaveBeenCalledWith('updater_install');
+    wrapper.unmount();
+  });
+
+  it('does not offer restart in settings after a failed check', async () => {
+    const store = useUpdaterStore();
+    vi.mocked(invoke).mockResolvedValueOnce(configured).mockRejectedValueOnce(new Error('HTTP 403'));
+    await store.check(true);
+    vi.mocked(invoke).mockResolvedValue(configured);
+    const wrapper = mount(SettingsUpdate, { props: { modelValue: structuredClone(defaultSettings) } });
+    expect(wrapper.text()).toContain('HTTP 403');
+    expect(wrapper.text()).toContain('updater.check');
+    expect(wrapper.text()).not.toContain('updater.updateAndRestart');
+    wrapper.unmount();
+  });
+
+  it('offers restart only for a confirmed available update', () => {
+    const store = useUpdaterStore();
+    store.configuration = configured;
+    store.checkResult = { ...configured, available: true, currentVersion: '1', availableVersion: '2' };
+    vi.mocked(invoke).mockResolvedValue(configured);
+    const alert = mount(TheUpdater);
+    const settings = mount(SettingsUpdate, { props: { modelValue: structuredClone(defaultSettings) } });
+    expect(alert.text()).toContain('updater.updateAndRestart');
+    expect(alert.text()).toContain('updater.install.subtitle');
+    expect(settings.text()).toContain('updater.updateAndRestart');
+    alert.unmount();
+    settings.unmount();
   });
 
   it('keeps install rejection visible and retries with a fresh check', async () => {

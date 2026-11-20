@@ -68,6 +68,11 @@ export const useMediaStore = defineStore('media', () => {
   }
 
   function finalizePlaylistGroup(group: Group) {
+    if (!Object.values(group.items).some(item => !item.entries)) {
+      stateStore.setGroupState(group.id, MediaState.error);
+      rejectPendingReadyGroup(group.id, diagnosticsStore.findLastFatalByGroupId(group.id)?.message);
+      return;
+    }
     const splitThreshold = settingsStore.settings.performance.splitPlaylistThreshold;
     const overrides = optionsStore.getOverrides(group.id);
     if (group.total < splitThreshold) {
@@ -284,6 +289,9 @@ export const useMediaStore = defineStore('media', () => {
     if (group && state === MediaState.configure) {
       return Promise.resolve([groupId]);
     }
+    if (group && state === MediaState.error) {
+      return Promise.reject(diagnosticsStore.findLastFatalByGroupId(groupId)?.message);
+    }
 
     return new Promise<string[]>((resolve, reject) => {
       pendingReadyGroups.set(groupId, { resolve, reject });
@@ -327,7 +335,7 @@ export const useMediaStore = defineStore('media', () => {
   }
 
   async function downloadSubtitles(groupId: string) {
-    const options = { ...getDownloadOptions(groupId), subtitlesOnly: true };
+    const options = { ...getDownloadOptions(groupId), subtitlesOnly: true, thumbnailOnly: false };
     await downloadGroup(groupId, options);
   }
 
@@ -350,7 +358,8 @@ export const useMediaStore = defineStore('media', () => {
 
     try {
       const items: MediaItem[] = Object.values(group.items);
-      const itemsWithoutLeader: MediaItem[] = items.filter(item => !item.entries && stateStore.getState(item.id) !== MediaState.done);
+      const includeCompleted = !execution && (options.subtitlesOnly || options.thumbnailOnly);
+      const itemsWithoutLeader: MediaItem[] = items.filter(item => !item.entries && (includeCompleted || stateStore.getState(item.id) !== MediaState.done));
       const encodings = optionsStore.getEncodings(groupId);
       const tracks = optionsStore.getTracks(groupId);
       const existingOverrides = cloneDownloadOverrides(execution ? execution.overrides : optionsStore.getOverrides(groupId));
@@ -371,15 +380,13 @@ export const useMediaStore = defineStore('media', () => {
       };
 
       if (itemsWithoutLeader.length === 0) return;
-      if (currentState === MediaState.paused || currentState === MediaState.pausedList) {
-        diagnosticsStore.removeDiagnostics(groupId);
-        for (const item of itemsWithoutLeader) diagnosticsStore.removeDiagnostics(item.id);
-      }
+      const restartedIds = new Set([groupId, ...itemsWithoutLeader.map(item => item.id)]);
+      for (const id of restartedIds) diagnosticsStore.removeDiagnostics(id);
       executions.set(groupId, { options: resolvedOptions, overrides: existingOverrides });
 
       const newState = group.isCombined ? MediaState.downloadingList : MediaState.downloading;
       items
-        .filter(item => stateStore.getState(item.id) !== MediaState.done)
+        .filter(item => includeCompleted || stateStore.getState(item.id) !== MediaState.done)
         .forEach(item => stateStore.setState(item.id, newState));
 
       const attemptId = uuidv4();

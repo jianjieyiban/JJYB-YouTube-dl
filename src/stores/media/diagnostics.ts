@@ -29,13 +29,18 @@ export const useMediaDiagnosticsStore = defineStore('media-diagnostics', () => {
     const currentState = stateStore.getGroupState(groupId);
     const group = groupStore.findGroupById(groupId);
     if (currentState === MediaState.fetching || currentState === MediaState.fetchingList) {
-      mediaStore.rejectPendingReadyGroup(groupId, payload.message);
+      if (currentState === MediaState.fetching) {
+        mediaStore.rejectPendingReadyGroup(groupId, payload.message);
+      }
+      group.processed++;
+      group.errored++;
     }
-    group.processed++;
-    group.errored++;
     const leader = groupStore.findGroupLeader(groupId);
     if (leader && leader.entries) {
       if (stateStore.getGroupState(groupId) === MediaState.fetchingList) {
+        if (group.processed === group.total) {
+          mediaStore.finalizePlaylistGroup(group);
+        }
         return;
       }
       // We are combined, so we only set one item to error.

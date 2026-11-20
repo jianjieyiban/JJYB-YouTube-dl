@@ -96,7 +96,8 @@ test.describe('when it has an update available', () => {
 
       await expect(updateAlert.getByText(`${stage} failed in updater`, { exact: true })).toBeVisible();
       await expect(updateAlert).toHaveAttribute('aria-busy', 'false');
-      await expect(updateAlert.getByRole('button', { name: 'Update and restart' })).toBeVisible();
+      await expect(updateAlert.getByRole('button', { name: 'Update and restart' })).toHaveCount(0);
+      await expect(updateAlert.getByRole('button', { name: 'Check for updates' })).toBeVisible();
       expect(await page.evaluate(() => window.E2E.updater?.installCalls ?? 0)).toBe(stage === 'download' ? 0 : 1);
       await page.clock.runFor(5000);
       await expect(updateAlert.getByText(`${stage} failed in updater`, { exact: true })).toBeVisible();

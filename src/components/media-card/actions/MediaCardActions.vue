@@ -38,7 +38,7 @@
     />
     <media-card-action-item
         @click="downloadThumbnail"
-        :disabled="!canDownload"
+        :disabled="!canDownload && groupState !== MediaState.done"
         :label="t('media.card.actions.downloadThumbnail')"
         :icon="PhotoIcon"
     />

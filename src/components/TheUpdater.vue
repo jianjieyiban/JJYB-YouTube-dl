@@ -24,11 +24,12 @@
             <progress class="progress progress-info w-full" :value="progress" max="100" :aria-label="t('updater.downloading')"></progress>
             <p v-if="progress !== undefined">{{ t('common.percentage', { percent: progress.toFixed() }) }}</p>
           </template>
-          <p v-if="!updater.isUpdating">{{ t('updater.install.subtitle') }}</p>
+          <p v-if="!updater.isUpdating && updater.checkResult?.available && !updater.lastError">{{ t('updater.install.subtitle') }}</p>
         </div>
         <template v-if="!updater.isUpdating">
           <button class="btn btn-sm" @click="updater.ignore()">{{ t('common.later') }}</button>
-          <button class="btn btn-info btn-sm" @click="updater.updateAndRestart()">{{ t('updater.updateAndRestart') }}</button>
+          <button v-if="updater.checkResult?.available && !updater.lastError" class="btn btn-info btn-sm" @click="updater.updateAndRestart()">{{ t('updater.updateAndRestart') }}</button>
+          <button v-else class="btn btn-info btn-sm" @click="updater.check(true)">{{ t('updater.check') }}</button>
         </template>
       </div>
     </Transition>

@@ -29,8 +29,38 @@ describe('thumbnail-only download controls', () => {
     expect(downloadThumbnail).toHaveBeenCalledWith('cover-group');
   });
 
-  it('disables independent thumbnail downloads while a group is downloading', () => {
-    state.value = 'downloading';
+  it('allows completed media to download its thumbnail', async () => {
+    downloadThumbnail.mockClear();
+    state.value = 'done';
+    const wrapper = mount(MediaCardActions, {
+      props: { group: { id: 'cover-group', url: 'https://example.com/video' } as Group },
+      global: { plugins: [i18n], stubs: { RouterLink: true } },
+    });
+    const action = wrapper.findAll('button').find(button => button.attributes('title') === i18n.global.t('media.card.actions.downloadThumbnail'));
+    expect(action).toBeDefined();
+    expect(action!.attributes('disabled')).toBeUndefined();
+    await action!.trigger('click');
+    expect(downloadThumbnail).toHaveBeenCalledExactlyOnceWith('cover-group');
+  });
+
+  it('keeps the ordinary completed-media action as retry', async () => {
+    state.value = 'done';
+    const wrapper = mount(MediaCardActions, {
+      props: { group: { id: 'cover-group', url: 'https://example.com/video' } as Group },
+      global: { plugins: [i18n], stubs: { RouterLink: true } },
+    });
+    const buttons = wrapper.findAll('button');
+    const retry = buttons.find(button => button.attributes('title') === i18n.global.t('media.card.actions.retry'));
+    expect(retry).toBeDefined();
+    expect(buttons.find(button => button.attributes('title') === i18n.global.t('media.card.actions.download'))).toBeUndefined();
+    await retry!.trigger('click');
+    expect(wrapper.emitted('retry')).toHaveLength(1);
+    expect(wrapper.emitted('download')).toBeUndefined();
+  });
+
+  it.each(['downloading', 'downloadingList', 'paused', 'pausedList', 'fetching', 'fetchingList', 'playlistSelection', 'error'])('disables independent thumbnail downloads while a group is %s', async (groupState) => {
+    downloadThumbnail.mockClear();
+    state.value = groupState;
     const wrapper = mount(MediaCardActions, {
       props: { group: { id: 'cover-group', url: 'https://example.com/video' } as Group },
       global: { plugins: [i18n], stubs: { RouterLink: true } },
@@ -38,6 +68,8 @@ describe('thumbnail-only download controls', () => {
     const action = wrapper.findAll('button').find(button => button.attributes('title') === i18n.global.t('media.card.actions.downloadThumbnail'));
     expect(action).toBeDefined();
     expect(action!.attributes('disabled')).toBeDefined();
+    await action!.trigger('click');
+    expect(downloadThumbnail).not.toHaveBeenCalled();
   });
 
   it('associates the save-thumbnail label with its own checkbox', () => {

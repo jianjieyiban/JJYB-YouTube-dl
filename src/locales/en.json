@@ -893,7 +893,10 @@
       "legendLabel": "Choose which parts of the app should update automatically.",
       "updateBinaries": {
         "label": "Automatically update tools:",
-        "hint": "OVD uses tools like yt-dlp and ffmpeg to download videos. Enable this to keep them up to date."
+        "hint": "OVD uses tools like yt-dlp and ffmpeg to download videos. Enable this to keep them up to date.",
+        "check": "Check for tool updates",
+        "upToDate": "Tools are up to date",
+        "failed": "Failed to check for tool updates: {error}"
       },
       "updateApp": {
         "label": "Automatically update the app:",
