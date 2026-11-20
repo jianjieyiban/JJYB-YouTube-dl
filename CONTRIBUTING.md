@@ -1,6 +1,6 @@
 # 参与 JJYB-YouTube-dl 开发
 
-**源码版本：3.4.4（待发布）· 最新正式资产：3.4.3 · 修改日期：2026-11-20。** 本项目基于 [Open Video Downloader / youtube-dl-gui](https://github.com/jely2002/youtube-dl-gui)，使用 Vue 3、TypeScript、Tauri 2 与 Rust。保留上游及第三方版权，沿用 AGPL-3.0-or-later，不将衍生修改表述为完全原创。
+**源码版本：3.4.4（待发布）· 最新正式资产：3.4.3 · 修改日期：2026-11-20。** 本仓库 [jianjieyiban/JJYB-YouTube-dl](https://github.com/jianjieyiban/JJYB-YouTube-dl) 是本工具唯一权威发布源：更新、下载、安全与支持均只面向本仓库。使用 Vue 3、TypeScript、Tauri 2 与 Rust。代码历史包含 AGPL-3.0 项目来源，按许可保留相应署名及第三方版权，沿用 AGPL-3.0-or-later。
 
 本轮补充更新入口观察（原生 PID 9684）：当前非便携进程明确显示应用更新不可用，并保留自有仓库发布页链接；不能计作应用更新 busy/idle 或升级通过。单独点击工具更新后，按钮禁用并显示“请稍候…”，随后进入工具安装页；已观察到 ffmpeg 下载 79 MB / 79 MB、ffprobe 下载中。随后 UI 自动返回主页，两个已完成项仍保留。只读复核实际 managed bin（未借用 PATH）：ffmpeg 82797568 bytes、ffprobe 82668032 bytes，均实际报告 6.1.1；AtomicParsley 287232 bytes，报告 20240608.083822.0；三个绝对路径版本命令退出码均为 0，执行前后哈希一致，metadata 未锁定。主流程已读取系统 Temp `ovd-managed-tools-9684-20261120-131801.log`。此证据覆盖工具更新界面及落盘文件可执行，不代表后续任务实际工具选择、应用更新忙碌门禁、3.4.4 签名升级或回滚通过。
 

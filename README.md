@@ -105,9 +105,9 @@ JJYB/
 
 ## 8. 3.4.3 便携更新
 
-3.4.3 正式 Release 已提供签名清单，程序内置可信公钥。真实隔离系统 Temp 中，官方 3.4.2 经 UI“检查更新 → 更新并重启”成功到达 3.4.3：journal 为 `phaseCommitted`，`old_version=3.4.2`，`old_hash=bbfa958d5da20d26e92e7aa795919940881be95df37fc5bc73ed93009fc5445a`，app-ready nonce 匹配；升级后 EXE SHA256 `dd4e96d67ea49bb94421c9d9d289b2e15d0d53edeafc93323ac9dc535d7c4e18` 与官方 3.4.3 manifest 一致，“关于”显示 3.4.3。中文界面、MP4、字幕启用仍可见，但未做逐字段配置比较。**此段仅确认 3.4.2 → 3.4.3 成功链，不等于 3.4.4 升级通过；另一次限定故障就绪回退验证见下段。** 资产缺失、校验失败或界面提示不可用时，请使用手动迁移，不绕过验签。
+3.4.3 正式 Release 已提供签名清单，程序内置可信公钥。真实隔离系统 Temp 中，本仓库 3.4.2 经 UI“检查更新 → 更新并重启”成功到达 3.4.3：journal 为 `phaseCommitted`，`old_version=3.4.2`，`old_hash=bbfa958d5da20d26e92e7aa795919940881be95df37fc5bc73ed93009fc5445a`，app-ready nonce 匹配；升级后 EXE SHA256 `dd4e96d67ea49bb94421c9d9d289b2e15d0d53edeafc93323ac9dc535d7c4e18` 与本仓库 3.4.3 清单一致，“关于”显示 3.4.3。中文界面、MP4、字幕启用仍可见，但未做逐字段配置比较。**此段仅确认 3.4.2 → 3.4.3 成功链，不等于 3.4.4 升级通过；另一次限定故障就绪回退验证见下段。** 资产缺失、校验失败或界面提示不可用时，请使用手动迁移，不绕过验签。
 
-用户另行授权了隔离系统 Temp 内官方 3.4.2 → 3.4.3 的故障回退验证：watcher 独占预置普通、非 nonce 的 `app-ready` 文件，不修改官方 EXE 或签名。事务 `.jjyb-update-13831d655c884cc083b4f55ed4acc3bd` 实际经历 `Staged → Replacing → AwaitingReady → RollingBack → RolledBack`，系统 Temp 日志 `jjyb-344-rollback-watch.log` 记录后台退出码 0。恢复的 target SHA256 `bbfa958d5da20d26e92e7aa795919940881be95df37fc5bc73ed93009fc5445a` 与官方 3.4.2 一致；旧版自动重启 PID 18988，“关于”实际显示 3.4.2。**已验证的仅是 3.4.2 → 3.4.3 故障就绪回退链，不等于 3.4.4 升级验收。**
+用户另行授权了隔离系统 Temp 内本仓库 3.4.2 → 3.4.3 的故障回退验证：watcher 独占预置普通、非 nonce 的 `app-ready` 文件，不修改发行 EXE 或签名。事务 `.jjyb-update-13831d655c884cc083b4f55ed4acc3bd` 实际经历 `Staged → Replacing → AwaitingReady → RollingBack → RolledBack`，系统 Temp 日志 `jjyb-344-rollback-watch.log` 记录后台退出码 0。恢复的 target SHA256 `bbfa958d5da20d26e92e7aa795919940881be95df37fc5bc73ed93009fc5445a` 与本仓库 3.4.2 一致；旧版自动重启 PID 18988，“关于”实际显示 3.4.2。**已验证的仅是 3.4.2 → 3.4.3 故障就绪回退链，不等于 3.4.4 升级验收。**
 
 1. 应用检查自有仓库最新**正式稳定版**，忽略草稿与预发行；不会从上游仓库更新本应用。
 2. 采用独立 `portable-latest.json` 与分离 Ed25519 签名 `portable-latest.json.sig`（不同于旧 `latest.json` 安装器机制），先验证签名再解析版本/平台；下载后核对大小、SHA256 与 Windows x64 PE，不接受同版或降级。
