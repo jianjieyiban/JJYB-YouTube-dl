@@ -93,11 +93,25 @@ fn generate_master_key() -> [u8; 32] {
   key
 }
 
+fn decode_master_key(b64: &str) -> Result<Vec<u8>, String> {
+  let key = general_purpose::STANDARD
+    .decode(b64)
+    .map_err(|_| "Secure keyring contains a malformed master key".to_string())?;
+  if key.len() != 32 {
+    return Err("Secure keyring master key must be 32 bytes".to_string());
+  }
+  Ok(key)
+}
+
 fn open_with_key(state: &StrongholdState, key: &[u8]) -> Result<(), String> {
+  let snapshot_exists = state.snapshot_path.exists();
   let sh = Stronghold::new(&state.snapshot_path, key.to_vec())
     .map_err(|e| format!("stronghold open failed: {e}"))?;
 
-  if sh.load_client(CLIENT).is_err() {
+  if let Err(e) = sh.load_client(CLIENT) {
+    if snapshot_exists {
+      return Err(format!("load_client failed: {e}"));
+    }
     sh.create_client(CLIENT)
       .map_err(|e| format!("create_client failed: {e}"))?;
     sh.write_client(CLIENT)
@@ -125,42 +139,83 @@ pub fn init_on_startup(app: &AppHandle, state: &State<StrongholdState>) {
 
   *state.init_error.lock().unwrap() = None;
 
-  let keyring = app.keyring();
-  match keyring.get_password(KR_SERVICE, KR_ACCOUNT) {
-    Ok(opt) => {
-      if let Some(b64) = opt {
-        match general_purpose::STANDARD.decode(&b64) {
-          Ok(key_bytes) => {
-            if let Err(_e) = open_with_key(state, &key_bytes) {
-              if let Err(setup_err) = create_and_store_new(app, state) {
-                *state.init_error.lock().unwrap() =
-                  Some(format!("Recreate vault failed after bad key: {setup_err}"));
-              }
-            }
-          }
-          Err(_) => {
-            if let Err(setup_err) = create_and_store_new(app, state) {
-              *state.init_error.lock().unwrap() = Some(format!(
-                "Recreate vault failed (malformed key): {setup_err}"
-              ));
-            }
-          }
-        }
-      }
-    }
-    Err(e) => {
-      *state.init_error.lock().unwrap() = Some(format!("Secure keyring unavailable: {e}"));
-    }
+  let result = app
+    .keyring()
+    .get_password(KR_SERVICE, KR_ACCOUNT)
+    .map_err(|e| format!("Secure keyring unavailable: {e}"))
+    .and_then(|stored| {
+      let b64 = stored.ok_or_else(|| "Secure keyring master key is missing".to_string())?;
+      let key = decode_master_key(&b64)?;
+      open_with_key(state, &key)
+    });
+  if let Err(e) = result {
+    *state.init_error.lock().unwrap() = Some(e);
   }
 }
 
 fn create_and_store_new(app: &AppHandle, state: &State<StrongholdState>) -> Result<(), String> {
-  let key = generate_master_key();
-  create_new_stronghold(state, &key)?;
-  let b64 = general_purpose::STANDARD.encode(key);
-  app
-    .keyring()
-    .set_password(KR_SERVICE, KR_ACCOUNT, &b64)
-    .map_err(|e| format!("failed to save key to keyring: {e}"))?;
-  Ok(())
+  let keyring = app.keyring();
+  let stored = keyring
+    .get_password(KR_SERVICE, KR_ACCOUNT)
+    .map_err(|e| format!("Secure keyring unavailable: {e}"))?;
+  let key = match stored {
+    Some(b64) => decode_master_key(&b64)?,
+    None => {
+      if state.snapshot_path.exists() {
+        return Err("Secure keyring master key is missing for existing vault".to_string());
+      }
+      let key = generate_master_key();
+      let b64 = general_purpose::STANDARD.encode(key);
+      keyring
+        .set_password(KR_SERVICE, KR_ACCOUNT, &b64)
+        .map_err(|e| format!("failed to save key to keyring: {e}"))?;
+      key.to_vec()
+    }
+  };
+  create_new_stronghold(state, &key)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn master_key_must_be_valid_base64_and_exactly_32_bytes() {
+    assert!(decode_master_key("not base64!").is_err());
+    for len in [0, 1, 31, 33, 64] {
+      assert!(decode_master_key(&general_purpose::STANDARD.encode(vec![7; len])).is_err());
+    }
+    let key = vec![7; 32];
+    assert_eq!(
+      decode_master_key(&general_purpose::STANDARD.encode(&key)).unwrap(),
+      key
+    );
+  }
+
+  #[test]
+  fn wrong_key_does_not_modify_existing_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("vault.hold");
+    let state = StrongholdState::new(path.clone());
+    open_with_key(&state, &[7; 32]).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let locked = StrongholdState::new(path.clone());
+    assert!(open_with_key(&locked, &[8; 32]).is_err());
+    assert!(locked.inner.lock().unwrap().is_none());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+  }
+
+  #[test]
+  fn existing_snapshot_without_client_is_not_recreated() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("vault.hold");
+    let sh = Stronghold::new(&path, vec![7; 32]).unwrap();
+    sh.save().unwrap();
+    drop(sh);
+    let before = std::fs::read(&path).unwrap();
+    let state = StrongholdState::new(path.clone());
+    assert!(open_with_key(&state, &[7; 32]).is_err());
+    assert!(state.inner.lock().unwrap().is_none());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+  }
 }
