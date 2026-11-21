@@ -81,6 +81,65 @@ describe('media store', () => {
     clearMocks();
   });
 
+  it.each(['Updater lock busy', new Error('Updater lock busy')])('handles media_info IPC rejection and returns the failed group: %s', async (error) => {
+    const info = vi.fn(() => Promise.reject(error));
+    installTauriMock({ media_info: info });
+    const startedAt = Date.now();
+
+    const groupId = await useMediaStore().dispatchMediaInfoFetch('https://example.com/video');
+
+    const itemId = useMediaGroupStore().findGroupLeader(groupId)!.id;
+    expect(useMediaGroupStore().findGroupById(groupId)).toMatchObject({ processed: 1, errored: 1 });
+    expect(useMediaStateStore().getGroupState(groupId)).toBe(MediaState.error);
+    expect(useMediaStateStore().getState(itemId)).toBe(MediaState.error);
+    expect(useMediaDiagnosticsStore().findLastFatalByGroupId(groupId)).toEqual({
+      groupId,
+      id: itemId,
+      exitCode: 1,
+      internal: true,
+      message: `${error}`,
+      details: null,
+      timestamp: expect.any(Number),
+    });
+    expect(useMediaDiagnosticsStore().findLastFatalByGroupId(groupId)!.timestamp).toBeGreaterThanOrEqual(startedAt);
+    expect(notifyGroup).toHaveBeenCalledWith(NotificationKind.DownloadFailed, expect.objectContaining({ id: groupId }), { message: `${error}` });
+    expect(notifyGroup).not.toHaveBeenCalledWith(NotificationKind.QueueAdded, expect.anything());
+  });
+
+  it('settles a URL batch when media_info IPC rejects', async () => {
+    installTauriMock({ media_info: () => Promise.reject('Updater lock busy') });
+
+    const groupIds = await useMediaStore().addUrlBatch(['https://example.com/one', 'https://example.com/two']);
+
+    expect(groupIds).toHaveLength(2);
+    for (const groupId of groupIds) {
+      expect(useMediaStateStore().getGroupState(groupId)).toBe(MediaState.error);
+      expect(useMediaDiagnosticsStore().findLastFatalByGroupId(groupId)?.message).toBe('Updater lock busy');
+    }
+  });
+
+  it.each(['single', 'batch'] as const)('settles immediate %s download without submitting after media_info IPC rejection', async (mode) => {
+    const download = vi.fn(() => 'ok');
+    installTauriMock({ media_info: () => Promise.reject('Updater lock busy'), media_download: download });
+    const media = useMediaStore();
+    let result: unknown = 'pending';
+    const outcome = (mode === 'single'
+      ? media.addAndDownload('https://example.com/video')
+      : media.addUrlBatchAndDownload(['https://example.com/one', 'https://example.com/two']))
+      .then(() => { result = 'resolved'; }, (error) => {
+        result = error;
+      });
+    await flushAsync();
+
+    expect(result).toBe('Updater lock busy');
+    await outcome;
+    for (const group of Object.values(useMediaGroupStore().groups)) {
+      expect(useMediaStateStore().getGroupState(group.id)).toBe(MediaState.error);
+      expect(useMediaDiagnosticsStore().findLastFatalByGroupId(group.id)?.message).toBe('Updater lock busy');
+    }
+    expect(download).not.toHaveBeenCalled();
+  });
+
   it('downloads options containing nested Vue proxies from the format selector', async () => {
     const download = vi.fn(() => 'ok');
     installTauriMock({ media_download: download });

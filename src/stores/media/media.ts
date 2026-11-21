@@ -257,12 +257,25 @@ export const useMediaStore = defineStore('media', () => {
       optionsStore.setOverrides(groupId, { inputFilters: inputFiltersOverride });
     }
 
-    await invoke('media_info', {
-      url,
-      id,
-      groupId,
-      overrides: optionsStore.getOverrides(groupId),
-    });
+    try {
+      await invoke('media_info', {
+        url,
+        id,
+        groupId,
+        overrides: optionsStore.getOverrides(groupId),
+      });
+    } catch (e) {
+      diagnosticsStore.processMediaFatalPayload({
+        groupId,
+        id,
+        exitCode: 1,
+        internal: true,
+        message: `${e}`,
+        details: null,
+        timestamp: Date.now(),
+      });
+      return groupId;
+    }
     await notifyGroup(NotificationKind.QueueAdded, newGroup);
     return groupId;
   }
