@@ -1,6 +1,6 @@
 # 参与 JJYB-YouTube-dl 开发
 
-**源码版本：3.4.4 · 自有仓库最新发布资产：3.4.4 · 修改日期：2026-11-20。** 本仓库 [jianjieyiban/JJYB-YouTube-dl](https://github.com/jianjieyiban/JJYB-YouTube-dl) 是本工具唯一权威发布源：更新、下载、安全与支持均只面向本仓库。使用 Vue 3、TypeScript、Tauri 2 与 Rust。代码历史包含 AGPL-3.0 项目来源，按许可保留相应署名及第三方版权，沿用 AGPL-3.0-or-later。
+**源码版本：3.4.5（维护版待发布）· 自有仓库最新发布资产：3.4.4 · 修改日期：2026-11-21。** 本仓库 [jianjieyiban/JJYB-YouTube-dl](https://github.com/jianjieyiban/JJYB-YouTube-dl) 是本工具唯一权威发布源：更新、下载、安全与支持均只面向本仓库。使用 Vue 3、TypeScript、Tauri 2 与 Rust。代码历史包含 AGPL-3.0 项目来源，按许可保留相应署名及第三方版权，沿用 AGPL-3.0-or-later。
 
 本轮补充更新入口观察（原生 PID 9684）：当前非便携进程明确显示应用更新不可用，并保留自有仓库发布页链接；不能计作应用更新 busy/idle 或升级通过。单独点击工具更新后，按钮禁用并显示“请稍候…”，随后进入工具安装页；已观察到 ffmpeg 下载 79 MB / 79 MB、ffprobe 下载中。随后 UI 自动返回主页，两个已完成项仍保留。只读复核实际 managed bin（未借用 PATH）：ffmpeg 82797568 bytes、ffprobe 82668032 bytes，均实际报告 6.1.1；AtomicParsley 287232 bytes，报告 20240608.083822.0；三个绝对路径版本命令退出码均为 0，执行前后哈希一致，metadata 未锁定。主流程已读取系统 Temp `ovd-managed-tools-9684-20261120-131801.log`。此证据覆盖工具更新界面及落盘文件可执行，不代表后续任务实际工具选择、应用更新忙碌门禁、3.4.4 签名升级或回滚通过。
 
@@ -12,7 +12,17 @@
 
 同一隔离便携进程空闲时点击应用“检查更新”，按钮禁用并显示检查中，随后 GitHub releases/latest 接口返回 HTTP 403。失败界面仍出现“更新并重启”控件，未点击任何更新或重启按钮，现场保留。本次只记录空闲检查失败，不计作 busy/idle 或升级通过，不重复盲试。
 
-## 最新发布与升级复核（2026-11-20）
+## 当前维护与发布状态（2026-11-21）
+
+3.4.5 待发布维护内容：应用更新遵循 HTTP/SOCKS 代理并增加读超时；metadata 解析、播放列表展开与大小查询入口纳入 busy 锁；界面区分应用更新与工具更新。保留 reqwest `socks` 改动，工具更新不等于主程序升级。
+
+最新隔离成功链：系统 Temp `jjyb-updater-fixed343-acceptance/.jjyb-update-6304661beb53406f9332a01a9a3d0c85/journal.json` 为 `Committed`、旧版 3.4.3，用户截图确认成功重启。3.4.4 故障回退及原生 busy 尚欠验收，后续 tag/Release 门禁不解除。
+
+本轮 3.4.5 源码回归：前端 278 项/36 文件、mock E2E 26 项（含设置入口点击）、发布规则 15 项、lint/类型检查与双前端构建通过；Rust all-features/all-targets 203 passed / 1 ignored，真实 FFmpeg ignored 用例另行运行 1 passed；全库 fmt 与严格 Clippy 通过，保留既有第三方警告。日志位于系统 Temp `jjyb-345-*`。直接浏览器视觉检查因未注入测试 fixture 被阻塞；后续 fixture E2E 通过，不冒充原生视觉验收或 3.4.5 全部门禁通过。
+
+只读工具来源核查：自有 `tools-stable/manifest.json`（2026-11-17）列出 yt-dlp 2026.10.26、ffmpeg/ffprobe b6.1.1、deno v2.9.8、AtomicParsley 20240608.083822.1ed9031；均与对应来源 yt-dlp/yt-dlp、eugeneware/ffmpeg-static、denoland/deno、wez/atomicparsley 的 latest 版本一致。未发现同来源可直接更新的版本清单；此处未下载执行工具、未重新验签或保证安全无漏洞。FFmpeg 的构建分发源不是 FFmpeg 项目本身；切换其他构建源需独立校验，不自动替换。
+
+## 已发布版本与升级复核（2026-11-20）
 
 自有仓库 v3.4.4 已发布，目标提交 `37abc39cb1e80ff54ddc56b09f84e4aeb60177e1`；该提交的 Vue CI、Rust CI 和发布工作流 `44746138721` 均成功，六项预期资产齐全。后续文档提交 `1a189e0` 已在远端 main，但未触发工作流，不能表述为该提交 CI 已通过。下文“待发布”“最新 3.4.3”“尚未打 tag”等为较早验收检查点，不代表当前发布状态；已发布不代表所有验收门禁通过，后续发布仍须补齐未通过项。
 
@@ -28,17 +38,17 @@
 
 补充依赖检查：默认镜像审计接口返回 501，随后官方 npm 审计返回 31 个中危依赖节点（4 类 advisory）、无高危/严重，均为开发依赖；拒绝自动建议的不兼容降级和未经验证的跨主版本 overrides。兼容依赖升级已完成并回归：`vitest` 与 `@vitest/coverage-v8` 升至 4.1.12、`typescript-eslint` 与 `@typescript-eslint/parser` 升至 8.73.0（官方 registry、`--ignore-scripts`，日志 `jjyb-deps-resume-*`）；lint、277 项前端单测、双构建通过。npm 10.9.3 安装触发 Arborist 内部异常，改用 npm 11.21.3 完成；升级后官方审计降至 22 个中危依赖节点、无高危/严重，均为开发依赖（glob/minimatch 及许可工具传递链），未强行修复。`license-checker-rseidelsohn@5.0.1` 要求 Node ≥24 的 engine 警告保留。剩余 22 条为依赖传播节点，归并为两个根公告：glob 的取消遍历资源消耗（GHSA-3g3m-2fjr-6pw4）和 minimatch 在 optimizationLevel ≥2 处理恶意模式的资源消耗（GHSA-g3hv-75wg-m249）。当前 i18n lint 使用固定 `./src/locales/*.json` 同步 glob，未发现外部用户模式或 AbortSignal 进入该调用链；这不是零漏洞结论。兼容修复尚无证据，不强推跨主版本替换；CI 仅在可信输入下运行，避免向不可信 PR 暴露凭据。
 
-更新链针对性核查：客户端与正式工作流的自有仓库地址、EXE 命名、清单与分离签名格式、SemVer 比较一致。远端只读查询确认最新正式 Release 为 v3.4.3，包含便携 EXE、ZIP、源码包、`portable-latest.json`、`.sig` 与 `SHA256SUMS`；仓库已配置应用/工具签名公私钥 Secret 名称（未读取密钥值，名称存在不代表配对与有效性已通过）。3.4.4 的源码推送不会自动成为可升级版本，需正式签名资产及发布验收；不得绕过验签或把该静态核查写成新版本升级通过。
+更新链针对性核查：客户端与正式工作流的自有仓库地址、EXE 命名、清单与分离签名格式、SemVer 比较一致。该历史检查点的远端只读查询确认当时最新正式 Release 为 v3.4.3（现为 v3.4.4），包含便携 EXE、ZIP、源码包、`portable-latest.json`、`.sig` 与 `SHA256SUMS`；仓库已配置应用/工具签名公私钥 Secret 名称（未读取密钥值，名称存在不代表配对与有效性已通过）。3.4.4 的源码推送不会自动成为可升级版本，需正式签名资产及发布验收；不得绕过验签或把该静态核查写成新版本升级通过。
 
 新增工具发现修复（2026-11-20）：便携布局曾把普通用户数据目录的 managed `bin` 从候选列表中排除，空便携配置因此重复下载已有工具。`PathsManager` 现在独立保留 `managed_bin_dir`，候选顺序为 portable → EXE 同级 bin → 当前安装目录 → 普通 managed 目录 → PATH，保序去重；便携配置与安装落点不变，版本身份校验与主动更新分流保持独立。新增 2 项 paths 回归（首次因测试代码 E0382 编译失败，修正后通过）；全量 Rust 196 项、严格 Clippy、rustfmt 与新 `--no-bundle` 原生构建日志为系统 Temp `jjyb-344-dirsfix-*`。该修复针对重复 `/install` 下载症状，历史 `No usable yt-dlp found` 根因仍未知，不宣称超时修复。
 
 Unix 实测前置检查：既有 WSL `JJYB-AnnaBuild` 可访问源码，但无 cargo/pkg-config；`JJYB-AnnaJammy` 启动失败，报告 `HCS/ERROR_PATH_NOT_FOUND`。未据此删除/重建用户发行版，也未将 Windows Rust 单测替代 Unix 进程终止验收。
 
-原隔离 PID 28540 的窗口已失效，运行应用列表未找到该进程；未对其他实例发送操作，不据此推断崩溃。工具首次识别失败根因仍未确定，当前源码 probe 为 5 秒，不能将此前超时猜测写成修复结论。签名升级、取消发布竞争、跨平台真实进程终止等未通过项如实保留；当前 3.4.4 尚未打 tag、未发 Release，上述验收项与签名发布前置条件仍须补齐；不将源码推送表述为一键升级已发布。
+原隔离 PID 28540 的窗口已失效，运行应用列表未找到该进程；未对其他实例发送操作，不据此推断崩溃。工具首次识别失败根因仍未确定，当前源码 probe 为 5 秒，不能将此前超时猜测写成修复结论。签名升级、取消发布竞争、跨平台真实进程终止等未通过项如实保留；该历史检查点当时尚未发布 3.4.4；目前 3.4.4 已发布，未完成验收项仍须为后续版本补齐；不将源码推送表述为一键升级已发布。
 
 新增工具文件替换修复：`atomic_file_replace` 不再先删除旧工具再 rename，而是直接使用文件系统替换，避免源文件缺失或替换失败时丢失仍可用的旧工具。新增“源缺失时保留旧内容”和“成功时替换内容并移除临时源”两项回归；第一项在修复前明确失败（旧文件 NotFound），修复后模块 2/2 通过，全仓 rustfmt 与 diff 检查通过。日志为系统 Temp `jjyb-atomic-file-replace-{red,green,fmt}.log`。这是此前全量 Rust 196 项及原生构建之后的独立小修复；随后按项目 `--all-features --all-targets` 执行最新后端回归，198 项通过、0 失败（系统 Temp `jjyb-344-close-rust.log`），包含两种取消/发布顺序、回执及暂停删除清理用例。定向静态核查未发现这些分支新的可证明错误；应用更新的 busy 门禁位于安装重启阶段，不禁止更新包下载。单测不替代原生取消竞争、删除和应用更新 busy/idle 验收。未将此前原生构建冒充包含此修复，也不将其归因为历史首次 yt-dlp 失败。
 
-源码提交收尾：最新严格 Clippy（`--all-features --all-targets -- -D warnings`）通过，日志为系统 Temp `jjyb-344-close-clippy.log`；独立差异审阅未发现本轮引入的确定性正确性或隐私阻塞。已验证的修复可提交推送源码；尚未完成的原生发布验收继续阻止 3.4.4 tag/Release，不把源码推送当作正式签名升级已可用。构建、缓存和私人配置不纳入提交，保留用户产物与必要工具。
+源码提交收尾：最新严格 Clippy（`--all-features --all-targets -- -D warnings`）通过，日志为系统 Temp `jjyb-344-close-clippy.log`；独立差异审阅未发现本轮引入的确定性正确性或隐私阻塞。已验证的修复可提交推送源码；尚未完成的原生发布验收继续阻止后续新版本 tag/Release，不把源码推送当作正式签名升级已可用。构建、缓存和私人配置不纳入提交，保留用户产物与必要工具。
 
 ## 环境与构建
 
@@ -72,7 +82,7 @@ E2E 首次需安装 Playwright 浏览器及系统依赖。记录真实环境、�
 
 3.3.1 修复后前端单元测试 160 项、Rust 测试 155 项、类型检查、前端构建、全库格式和严格 Clippy 已通过；ESLint 0 错误、1 条中文原始文本警告。原生界面用本地 HTTP 样例验证视频 H.264/AAC MP4 和独立 JPG 封面。上一轮 Edge E2E 22/22 是历史结果，不能冒充本轮复跑。保留 Stronghold 及 libsodium PDB 第三方既有警告。
 
-3.4.4 待发布源码将 SettingsUpdate 工具更新成功、失败提示改为 i18n，并新增 3 项回归测试覆盖默认英文、成功和失败提示。最新系统 Temp 记录与历史记录分开：
+3.4.4 将 SettingsUpdate 工具更新成功、失败提示改为 i18n，并新增 3 项回归测试覆盖默认英文、成功和失败提示。最新系统 Temp 记录与历史记录分开：
 
 - `jjyb-344-ready-unit.log`：266 项、36 个测试文件通过；`jjyb-344-ready-lint.log` 通过。
 - 主流程已成功执行 `jjyb-344-ready-e2e.log` 25 项与 `jjyb-344-ready-release.log` 13 项。
@@ -89,7 +99,7 @@ E2E 首次需安装 Playwright 浏览器及系统依赖。记录真实环境、�
 
 同一 ready-native 已完成 media 组补充原生复验：Preferences 中仅字幕采用默认中文优先、未选语言时，明确报告无可下载字幕；metadata 只有德语/英语，符合策略，不是 bug。随后手动选择人工英语（中文优先自动关闭），再次仅字幕成功；主流程实际读取 `C:\Users\李旺\Downloads\Me at the zoo-(240p15).en.srt`，为 6 段英文时间轴，范围 1.2–18.881 秒。UI 完成 100%、队列已下载 1，不再残留刚才的 1 次失败。此为新增“失败 → 重交字幕成功、计数清除”原生验收，与此前两次 SRT 及媒体 ffprobe 证据分开记录。
 
-历史中文翻译轨曾返回 HTTP 429，未取得该轨 SRT；此前原生测试 `BaW_jenozKc` 返回 `This video is unavailable`，也未取得字幕产物，不否定后续英文 SRT 两次通过。真实官方 3.4.2 → 3.4.3 更新成功链及限定故障就绪回退链已分别验证（见下文），不等于 3.4.4 升级通过。本地样例与模拟测试不能替代真实验收。3.4.4 尚未发布。最新普通媒体成功不消除网络稳定性风险，旧 `No usable yt-dlp found` 根因仍未知；3.4.4 升级（含其故障回退）尚未验收，剩余验收明确前阻止新版本打 tag/Release，不宣称全面验收。
+历史中文翻译轨曾返回 HTTP 429，未取得该轨 SRT；此前原生测试 `BaW_jenozKc` 返回 `This video is unavailable`，也未取得字幕产物，不否定后续英文 SRT 两次通过。真实官方 3.4.2 → 3.4.3 更新成功链及限定故障就绪回退链已分别验证（见下文），不等于 3.4.4 升级通过。本地样例与模拟测试不能替代真实验收。此为 3.4.4 发布前的历史检查点，现已发布且成功升级链另有记录。最新普通媒体成功不消除网络稳定性风险，旧 `No usable yt-dlp found` 根因仍未知；3.4.4 故障回退与原生 busy 仍待验收，剩余验收明确前阻止新版本打 tag/Release，不宣称全面验收。
 
 新增下载回归修复：已完成媒体可提交独立字幕/封面任务；只有新的专项动作包含已完成项，普通下载与执行快照续传仍跳过已完成项。新增 3 项测试，已确认修复前两个专项测试失败、修复后该文件 27 项通过；该阶段 final 复跑单测 251 项、E2E 25 项、lint 和前端构建通过，仅为历史结果；最新 ready 结果见上文。专项动作在 IPC 前转换已完成项状态；普通下载与执行快照续传仍排除 completed。
 
@@ -107,7 +117,7 @@ E2E 首次需安装 Playwright 浏览器及系统依赖。记录真实环境、�
 
 ## 版本、便携产物与发布
 
-当前 3.4.4 仅为待发布源码，最新正式资产目前为 3.4.3；3.4.3 已发布的 tag 不得覆盖或移动。同步 `package.json`、`package-lock.json` 顶层及根包、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 自身包和 `src-tauri/tauri.conf.json` 的版本，不全局替换历史版本或第三方依赖版本。更新 README、使用文档及许可中本项目版本；重新构建后复制程序，再计算 SHA256，不只改目录名冒充新版本。
+当前 3.4.5 为待发布维护源码，最新正式资产为 3.4.4；所有已发布 tag 不得覆盖或移动。同步 `package.json`、`package-lock.json` 顶层及根包、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 自身包和 `src-tauri/tauri.conf.json` 的版本，不全局替换历史版本或第三方依赖版本。更新 README、使用文档及许可中本项目版本；重新构建后复制程序，再计算 SHA256，不只改目录名冒充新版本。
 
 当前范围是 Windows x64 便携版，没有安装器和其他平台已验收产物。公开包必须从白名单资源生成，不能直接压缩个人运行目录；需要附对应源码、vendor、许可证和修改说明。自有仓库为 [jianjieyiban/JJYB-YouTube-dl](https://github.com/jianjieyiban/JJYB-YouTube-dl)，公开资产以实际 Release 为准。仅推送源码不等于已发布 Release。
 
