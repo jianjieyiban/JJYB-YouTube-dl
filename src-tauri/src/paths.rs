@@ -125,6 +125,7 @@ impl PathsManager {
     Ok(())
   }
 
+  #[cfg(any(windows, test))]
   fn prepare_directory(dir: &std::path::Path) -> std::io::Result<()> {
     let prepare = || -> std::io::Result<()> {
       std::fs::create_dir_all(dir)?;
