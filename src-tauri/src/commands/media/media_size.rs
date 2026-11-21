@@ -11,7 +11,11 @@ pub fn media_size(
   group_id: String,
   format: FormatOptions,
   pipeline: State<'_, FetchSender>,
+  updater: State<'_, tokio::sync::Mutex<crate::commands::UpdateStore>>,
 ) -> Result<String, String> {
+  let _update_guard = updater
+    .try_lock()
+    .map_err(|_| "应用更新正在进行，请稍后添加解析任务")?;
   pipeline
     .0
     .send(DispatchRequest::Pipeline(FetchRequest::Size {

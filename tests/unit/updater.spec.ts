@@ -104,8 +104,22 @@ describe('application updater', () => {
     vi.mocked(invoke).mockResolvedValue(configured);
     const wrapper = mount(SettingsUpdate, { props: { modelValue: structuredClone(defaultSettings) } });
     expect(wrapper.text()).toContain('HTTP 403');
-    expect(wrapper.text()).toContain('updater.check');
+    expect(wrapper.text()).toContain('settings.update.updateApp.check');
     expect(wrapper.text()).not.toContain('updater.updateAndRestart');
+    wrapper.unmount();
+  });
+
+  it('makes the application check a primary action distinct from tool updates', () => {
+    const store = useUpdaterStore();
+    store.configuration = configured;
+    vi.mocked(invoke).mockResolvedValue(configured);
+    const wrapper = mount(SettingsUpdate, { props: { modelValue: structuredClone(defaultSettings) } });
+    const check = wrapper.findAll('button').find(button => button.text() === 'settings.update.updateApp.check');
+    expect(check).toBeDefined();
+    expect(check!.classes()).toContain('btn-primary');
+    expect(check!.classes()).not.toContain('btn-sm');
+    expect(wrapper.text()).toContain('settings.update.updateApp.hint');
+    expect(wrapper.text()).toContain('settings.update.updateBinaries.check');
     wrapper.unmount();
   });
 

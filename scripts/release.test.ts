@@ -94,6 +94,31 @@ test('normal startup without an update does not apply updater-only path restrict
   assert.ok(startup.indexOf('if args.first().is_some_and(|s| s == CHILD)') < startup.indexOf('guard_path(&target)'), 'Child handshake must retain its path guard');
 });
 
+test('every media submission holds the updater lock until it is queued', async () => {
+  for (const command of ['media_info', 'media_playlist_expand', 'media_size', 'media_download']) {
+    const source = await readFile(new URL(`../src-tauri/src/commands/media/${command}.rs`, import.meta.url), 'utf8');
+    const lock = source.indexOf('.try_lock()');
+    const submit = source.search(/(?:FetchBatch::submit|DownloadBatch::submit_with_attempt)/);
+    assert.ok(lock >= 0 && lock < submit, `${command} can submit work during update installation`);
+    assert.match(source, /let _update_guard = updater/);
+  }
+});
+
+test('updater uses configured networking without a fixed executable download deadline', async () => {
+  const check = await readFile(new URL('../src-tauri/src/commands/updater/updater_check.rs', import.meta.url), 'utf8');
+  const download = await readFile(new URL('../src-tauri/src/commands/updater/updater_download.rs', import.meta.url), 'utf8');
+  const cargo = await readFile(new URL('../src-tauri/Cargo.toml', import.meta.url), 'utf8');
+  assert.match(cargo, /reqwest\s*=\s*\{[^\r\n]*features\s*=\s*\[[^\]]*"socks"/);
+  const client = check.slice(check.indexOf('pub fn update_client'), check.indexOf('pub async fn bounded_download'));
+  assert.match(client, /network\.enable_proxy/);
+  assert.match(client, /reqwest::Proxy::all/);
+  assert.match(client, /\.read_timeout\(/);
+  assert.doesNotMatch(client, /\.timeout\(/);
+  for (const source of [check, download]) assert.match(source, /update_client\(&.*network\)/);
+  const bounded = check.slice(check.indexOf('pub async fn bounded_download'), check.indexOf('struct GhAsset'));
+  assert.match(bounded, /\.timeout\(/);
+});
+
 test('update readiness is confirmed only after showing the normal window', async () => {
   const source = await readFile(new URL('../src-tauri/src/commands/app_ready.rs', import.meta.url), 'utf8');
   assert.ok(source.indexOf('.show()') < source.indexOf('confirm_ready()'), 'Update is acknowledged before window display succeeds');

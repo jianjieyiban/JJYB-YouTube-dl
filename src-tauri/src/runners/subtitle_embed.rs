@@ -58,6 +58,60 @@ mod tests {
   use super::*;
 
   #[tokio::test]
+  #[ignore = "requires a real ffmpeg binary; run explicitly with --ignored and JJYB_TEST_FFMPEG set"]
+  async fn started_ffmpeg_nonzero_exit_keeps_original_media_and_srt() {
+    let binary = std::env::var("JJYB_TEST_FFMPEG")
+      .expect("Set JJYB_TEST_FFMPEG to a real ffmpeg executable for this acceptance test");
+    assert!(
+      std::path::Path::new(&binary).is_file(),
+      "JJYB_TEST_FFMPEG does not point to an existing file"
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let media = directory.path().join("video.mp4");
+    let subtitle = directory.path().join("video.en.srt");
+    // Synthesize a genuinely valid MP4 with the same ffmpeg binary.
+    let synthesized = std::process::Command::new(&binary)
+      .args([
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=duration=0.5:size=128x64:rate=10",
+        "-pix_fmt",
+        "yuv420p",
+        "-y",
+      ])
+      .arg(&media)
+      .status()
+      .unwrap();
+    assert!(
+      synthesized.success(),
+      "ffmpeg could not synthesize the test MP4"
+    );
+    // Binary garbage must make ffmpeg fail to open the subtitle input.
+    std::fs::write(&subtitle, [0u8, 159, 146, 150, 0, 1, 2, 255, 254, 253]).unwrap();
+    let before_media = std::fs::read(&media).unwrap();
+    let before_srt = std::fs::read(&subtitle).unwrap();
+    let (_running, mut cancel) = watch::channel(true);
+    let result = embed_with_binary(
+      std::path::Path::new(&binary),
+      &media,
+      std::slice::from_ref(&subtitle),
+      &mut cancel,
+    )
+    .await;
+    let error = result.expect_err("a corrupt SRT must make the started ffmpeg exit nonzero");
+    assert!(
+      error.contains("FFmpeg subtitle embedding failed"),
+      "unexpected error: {error}"
+    );
+    assert_eq!(std::fs::read(&media).unwrap(), before_media);
+    assert_eq!(std::fs::read(&subtitle).unwrap(), before_srt);
+    assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 2);
+  }
+
+  #[tokio::test]
   async fn failed_embed_keeps_original_media_and_srt() {
     let directory = tempfile::tempdir().unwrap();
     let media = directory.path().join("video.mp4");

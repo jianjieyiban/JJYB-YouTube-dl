@@ -900,7 +900,8 @@
       },
       "updateApp": {
         "label": "Automatically update the app:",
-        "hint": "Turn this on to receive new features and bug fixes as soon as a new version is released."
+        "hint": "Check for app releases only from the JJYB repository, never the upstream app. Use the button below to update the app; tool updates above only update yt-dlp, FFmpeg and other download tools.",
+        "check": "Check for app updates"
       }
     },
     "system": {

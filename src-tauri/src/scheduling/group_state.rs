@@ -464,29 +464,50 @@ mod tests {
   async fn cancellation_winner_cannot_start_publication() {
     let id = "cancel-before-commit";
     let batch = DownloadBatch::submit(id);
-    let mut run = batch.slot("clip").begin(&batch, "clip").await.unwrap();
+    let slot = batch.slot("clip");
+    let root = tempfile::tempdir().unwrap();
+    let template = root.path().join("clip.%(ext)s");
+    let template = template.to_str().unwrap();
+    let mut run = slot.begin(&batch, "clip").await.unwrap();
+    let staging = slot.staging_dir(template).unwrap();
+    std::fs::write(staging.join("clip.mp4"), b"staged").unwrap();
     let ack = cancel_download_group(id, false);
     assert!(!run.try_commit());
     drop(run);
     assert!(ack.wait().await.completed.is_empty());
+    assert!(!staging.exists());
+    assert!(!root.path().join("clip.mp4").exists());
   }
 
   #[tokio::test]
   async fn publication_winner_is_returned_only_after_the_run_finishes() {
     let id = "cancel-after-commit";
     let batch = DownloadBatch::submit(id);
-    let mut run = batch.slot("clip").begin(&batch, "clip").await.unwrap();
+    let slot = batch.slot("clip");
+    let root = tempfile::tempdir().unwrap();
+    let template = root.path().join("clip.%(ext)s");
+    let template = template.to_str().unwrap();
+    let mut run = slot.begin(&batch, "clip").await.unwrap();
+    let staging = slot.staging_dir(template).unwrap();
+    let staged_file = staging.join("clip.mp4");
+    std::fs::write(&staged_file, b"published").unwrap();
     assert!(run.try_commit());
+    let destination = root.path().join("clip.mp4");
+    let destination_string = destination.to_string_lossy().into_owned();
     let mut ack = std::pin::pin!(cancel_download_group(id, true).wait());
     assert!(futures::poll!(ack.as_mut()).is_pending());
-    run.completed("published.mp4".into());
+    // Publication happens outside the lock; move the staged output like publish_artifact_set.
+    std::fs::rename(&staged_file, &destination).unwrap();
+    run.completed(destination_string.clone());
     // Completion is recorded before emitting the event; the receipt still waits.
     assert!(futures::poll!(ack.as_mut()).is_pending());
     drop(run);
     let completed = ack.await.completed;
     assert_eq!(completed.len(), 1);
     assert_eq!(completed[0].id, "clip");
-    assert_eq!(completed[0].destination, "published.mp4");
+    assert_eq!(completed[0].destination, destination_string);
+    assert_eq!(std::fs::read(&destination).unwrap(), b"published");
+    assert!(!staging.exists());
   }
 
   #[tokio::test]

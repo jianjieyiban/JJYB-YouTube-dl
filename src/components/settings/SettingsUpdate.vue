@@ -17,7 +17,8 @@
       {{ checkingBinaries ? t('common.pleaseWait') : t('settings.update.updateBinaries.check') }}
     </button>
     <p v-if="binaryUpdateMessage" role="status" class="label">{{ binaryUpdateMessage }}</p>
-    <label class="font-semibold mt-2" for="updateApp">
+    <div class="mt-4 rounded-lg border-2 border-primary bg-base-200 p-4 flex flex-col gap-2">
+    <label class="font-semibold" for="updateApp">
       {{ t('settings.update.updateApp.label') }}
     </label>
     <input
@@ -33,15 +34,16 @@
       {{ t('updater.manualUpdate') }}
     </p>
     <div v-else class="flex flex-wrap items-center gap-2">
-      <button class="btn btn-sm" :disabled="updater.isUpdating" @click="updater.check(true)">{{ t('updater.check') }}</button>
-      <button v-if="updater.checkResult?.available && !updater.lastError" class="btn btn-info btn-sm" :disabled="updater.isUpdating" @click="updater.updateAndRestart()">{{ t('updater.updateAndRestart') }}</button>
+      <button type="button" class="btn btn-primary w-full sm:w-auto" :disabled="updater.isUpdating" @click="updater.check(true)">{{ t('settings.update.updateApp.check') }}</button>
+      <button v-if="updater.checkResult?.available && !updater.lastError" class="btn btn-info w-full sm:w-auto" :disabled="updater.isUpdating" @click="updater.updateAndRestart()">{{ t('updater.updateAndRestart') }}</button>
       <p role="status" aria-live="polite">
         <template v-if="updater.isUpdating">{{ t(`updater.${updater.phase}`) }}</template>
         <template v-else-if="updater.lastError">{{ t('updater.failed') }} {{ updater.lastError }}</template>
         <template v-else-if="updater.checkResult && !updater.checkResult.available">{{ t('updater.upToDate') }}</template>
       </p>
     </div>
-    <a class="link" :href="updater.configuration?.releasesUrl ?? 'https://github.com/jianjieyiban/JJYB-YouTube-dl/releases'" target="_blank" rel="noopener noreferrer">{{ updater.configuration?.releasesUrl ?? 'https://github.com/jianjieyiban/JJYB-YouTube-dl/releases' }}</a>
+    </div>
+    <a class="link break-all" :href="updater.configuration?.releasesUrl ?? 'https://github.com/jianjieyiban/JJYB-YouTube-dl/releases'" target="_blank" rel="noopener noreferrer">{{ updater.configuration?.releasesUrl ?? 'https://github.com/jianjieyiban/JJYB-YouTube-dl/releases' }}</a>
   </base-fieldset>
 </template>
 <script setup lang="ts">

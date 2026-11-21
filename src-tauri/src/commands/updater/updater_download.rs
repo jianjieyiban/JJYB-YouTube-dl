@@ -1,5 +1,5 @@
 use crate::portable_update::{verify_executable, PortableManifest};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex;
 
 #[derive(serde::Serialize, Clone)]
@@ -40,7 +40,8 @@ pub async fn updater_download(
   }
   let manifest = state.update.clone().ok_or("请先检查可用更新")?;
   let result: Result<Vec<u8>, String> = async {
-    let client = super::update_client()?;
+    let config = app.state::<crate::SharedConfig>().load();
+    let client = super::update_client(&config.network)?;
     let mut response = client
       .get(&manifest.url)
       .send()

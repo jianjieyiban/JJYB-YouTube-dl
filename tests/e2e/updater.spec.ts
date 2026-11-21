@@ -134,6 +134,16 @@ test.describe('when it has no update available', () => {
     }, { scope: 'test' }],
   });
 
+  test('settings separates a prominent application check from tool updates', async ({ page }) => {
+    await page.goto('/settings/system');
+    const appCheck = page.getByRole('button', { name: 'Check for app updates', exact: true });
+    await expect(appCheck).toBeVisible();
+    await expect(appCheck).toHaveClass(/btn-primary/);
+    await expect(page.getByRole('button', { name: 'Check for tool updates', exact: true })).toBeVisible();
+    await appCheck.click();
+    await expect(page.getByText('The app is up to date.', { exact: true })).toBeVisible();
+  });
+
   test('it shows no alert', async ({ page }) => {
     await page.goto('/');
     const updateAlert = page.getByTestId('updater-alert');

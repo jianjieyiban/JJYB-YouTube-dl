@@ -1,6 +1,6 @@
 use super::UpdateStore;
 use crate::portable_update::{verify_manifest, PortableManifest};
-#[cfg(all(windows, target_arch = "x86_64"))]
+use crate::state::config_models::NetworkSettings;
 use tauri::Manager;
 use tauri::{AppHandle, State};
 use tokio::sync::Mutex;
@@ -55,11 +55,22 @@ fn trusted_api_request(url: &url::Url) -> bool {
     && url.path().starts_with(&format!("/repos/{OWNER}/{REPO}/"))
 }
 
-pub fn update_client() -> Result<reqwest::Client, String> {
-  reqwest::Client::builder()
+pub fn update_client(network: &NetworkSettings) -> Result<reqwest::Client, String> {
+  let mut builder = reqwest::Client::builder();
+  if network.enable_proxy == Some(true) {
+    let proxy = network
+      .proxy
+      .as_deref()
+      .map(str::trim)
+      .filter(|value| !value.is_empty())
+      .ok_or("已启用代理，但代理地址为空")?;
+    builder = builder.proxy(reqwest::Proxy::all(proxy).map_err(|e| format!("无效更新代理: {e}"))?);
+  }
+  builder
     .user_agent("JJYB-YouTube-dl-Updater")
     .connect_timeout(std::time::Duration::from_secs(15))
-    .timeout(std::time::Duration::from_secs(300))
+    // 持续有数据的慢速下载不设总时限；长时间无数据仍应失败。
+    .read_timeout(std::time::Duration::from_secs(60))
     .redirect(reqwest::redirect::Policy::custom(|attempt| {
       let url = attempt.url();
       if attempt.previous().len() >= 5 {
@@ -82,6 +93,7 @@ pub async fn bounded_download(
 ) -> Result<Vec<u8>, String> {
   let mut response = client
     .get(url)
+    .timeout(std::time::Duration::from_secs(60))
     .send()
     .await
     .map_err(|e| e.to_string())?
@@ -163,7 +175,8 @@ pub async fn updater_check(
   let status = configuration(&app);
   let current = app.package_info().version.to_string();
   if status.configured {
-    let client = update_client()?;
+    let config = app.state::<crate::SharedConfig>().load();
+    let client = update_client(&config.network)?;
     let api_raw = bounded_download(&client, API_LATEST, 64 * 1024).await?;
     let latest: GhLatest =
       serde_json::from_slice(&api_raw).map_err(|e| format!("无效 GitHub API 响应: {e}"))?;
@@ -200,6 +213,117 @@ pub async fn updater_check(
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[tokio::test]
+  async fn update_requests_use_the_enabled_application_proxy() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+      let (mut stream, _) = listener.accept().await.unwrap();
+      let mut request = Vec::new();
+      while !request.ends_with(b"\r\n\r\n") {
+        let byte = stream.read_u8().await.unwrap();
+        request.push(byte);
+        assert!(request.len() <= 4096);
+      }
+      let request = String::from_utf8_lossy(&request);
+      assert!(request.starts_with("GET http://updater.invalid/manifest "));
+      stream
+        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+        .await
+        .unwrap();
+    });
+    let network = NetworkSettings {
+      enable_proxy: Some(true),
+      proxy: Some(format!("http://{address}")),
+      ..Default::default()
+    };
+    let client = update_client(&network).unwrap();
+    let bytes = tokio::time::timeout(
+      std::time::Duration::from_secs(5),
+      bounded_download(&client, "http://updater.invalid/manifest", 2),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(bytes, b"ok");
+    server.await.unwrap();
+  }
+
+  #[tokio::test]
+  async fn update_requests_use_the_enabled_socks_proxy() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+      let (mut stream, _) = listener.accept().await.unwrap();
+      assert_eq!(stream.read_u8().await.unwrap(), 5);
+      let methods_count = stream.read_u8().await.unwrap();
+      let mut methods = vec![0; methods_count as usize];
+      stream.read_exact(&mut methods).await.unwrap();
+      assert!(methods.contains(&0));
+      stream.write_all(&[5, 0]).await.unwrap();
+      let mut header = [0; 4];
+      stream.read_exact(&mut header).await.unwrap();
+      assert_eq!(header, [5, 1, 0, 3]);
+      let host_length = stream.read_u8().await.unwrap();
+      let mut host = vec![0; host_length as usize];
+      stream.read_exact(&mut host).await.unwrap();
+      assert_eq!(host, b"updater.invalid");
+      assert_eq!(stream.read_u16().await.unwrap(), 80);
+      stream
+        .write_all(&[5, 0, 0, 1, 127, 0, 0, 1, 0, 80])
+        .await
+        .unwrap();
+      let mut request = Vec::new();
+      while !request.ends_with(b"\r\n\r\n") {
+        request.push(stream.read_u8().await.unwrap());
+        assert!(request.len() <= 4096);
+      }
+      assert!(request.starts_with(b"GET /manifest "));
+      stream
+        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+        .await
+        .unwrap();
+    });
+    let network = NetworkSettings {
+      enable_proxy: Some(true),
+      proxy: Some(format!("socks5h://{address}")),
+      ..Default::default()
+    };
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+      let client = update_client(&network)?;
+      bounded_download(&client, "http://updater.invalid/manifest", 2).await
+    })
+    .await;
+    // 即便客户端不支持 SOCKS，失败测试也不遗留等待连接的后台任务。
+    if !matches!(&result, Ok(Ok(_))) {
+      server.abort();
+    }
+    assert_eq!(result.unwrap().unwrap(), b"ok");
+    server.await.unwrap();
+  }
+
+  #[test]
+  fn enabled_update_proxy_requires_a_nonempty_address() {
+    let network = NetworkSettings {
+      enable_proxy: Some(true),
+      proxy: Some("  ".into()),
+      ..Default::default()
+    };
+    assert!(update_client(&network).is_err());
+  }
+
+  #[test]
+  fn disabled_update_proxy_ignores_the_saved_address() {
+    let network = NetworkSettings {
+      enable_proxy: Some(false),
+      proxy: Some("not a proxy URL".into()),
+      ..Default::default()
+    };
+    assert!(update_client(&network).is_ok());
+  }
 
   #[test]
   fn trusted_api_allows_only_own_repo_releases() {
