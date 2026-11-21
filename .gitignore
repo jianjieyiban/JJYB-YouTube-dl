@@ -31,6 +31,9 @@ licenses/*
 test-results/
 coverage/
 
+.release-work/
+release-assets/
+
 # Local credentials and runtime data (never publish)
 .env
 .env.*

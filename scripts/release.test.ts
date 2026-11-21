@@ -50,6 +50,24 @@ test('Rust CI builds both embedded frontends before compilation', async () => {
   }
 });
 
+test('portable packaging keeps staging under its output root', async () => {
+  const source = await readFile(new URL('./package-portable.ps1', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /\$env:RUNNER_TEMP/);
+  assert.match(source, /\$layout = Join-Path \$OutputDirectory/);
+});
+
+test('release workflow keeps generated notes under the checkout', async () => {
+  const source = await readFile(new URL('../.github/workflows/portable-release.yml', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /RUNNER_TEMP|runner\.temp/);
+  assert.match(source, /\.release-work\/jjyb-release-notes\.txt/);
+});
+
+test('release verification downloads stay under the checkout', async () => {
+  const source = await readFile(new URL('./publish-release.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /tmpdir\(/);
+  assert.match(source, /resolve\('\.release-work'\)/);
+});
+
 test('portable staging reports rejected relative paths without exposing file contents', async () => {
   const source = await readFile(new URL('./package-portable.ps1', import.meta.url), 'utf8');
   assert.match(source, /\$forbidden\s*\|\s*ForEach-Object/);
@@ -83,7 +101,7 @@ test('portable guard allows only the public certifi bundle and rejects secrets',
       assert.equal(result.status === 0, allowed, `${name}: ${result.stderr}`);
     }
   } finally {
-    await rm(directory, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 });
 
@@ -160,7 +178,7 @@ test('release preflight accepts the shared updater trust root and rejects a fore
     assert.notEqual(foreign.status, 0);
     assert.match(foreign.stderr, /trust root/);
   } finally {
-    await rm(directory, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 });
 
@@ -227,6 +245,6 @@ test('all assets must be present, unique, named safely and hash-correct', async 
       await assert.rejects(verifyChecksums(directory));
     }
   } finally {
-    await rm(directory, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 });

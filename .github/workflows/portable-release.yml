@@ -76,7 +76,8 @@ jobs:
           JJYB_UPDATE_PRIVATE_KEY_B64: ${{ secrets.JJYB_UPDATE_PRIVATE_KEY_B64 }}
         run: |
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
-          $notes = Join-Path $env:RUNNER_TEMP 'jjyb-release-notes.txt'
+          New-Item -ItemType Directory -Path '.release-work' -Force | Out-Null
+          $notes = '.release-work/jjyb-release-notes.txt'
           Set-Content -LiteralPath $notes -Value "JJYB-YouTube-dl $version Windows x64 portable. See README and bundled docs for migration, usage and licenses. Update signatures are not Windows Authenticode signatures." -Encoding utf8
           node scripts/portable-manifest.ts generate "release-assets/JJYB-YouTube-dl_${version}_x64.exe" release-assets $notes
           if ($LASTEXITCODE -ne 0) { throw 'Portable manifest generation failed' }
@@ -85,4 +86,4 @@ jobs:
       - name: Upload draft, download every asset, verify, then publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/publish-release.ts portable release-assets "${{ runner.temp }}/jjyb-release-notes.txt"
+        run: node scripts/publish-release.ts portable release-assets ".release-work/jjyb-release-notes.txt"

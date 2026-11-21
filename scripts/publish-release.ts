@@ -1,7 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { readFile, mkdtemp } from 'node:fs/promises';
+import { readFile, mkdtemp, mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
 import { verifyChecksums } from './release-assets.ts';
 import { verifyManifest } from './portable-manifest.ts';
 import { verifyBytes } from './release-signing.ts';
@@ -38,7 +37,9 @@ async function main() {
   if (!uploaded.isDraft || JSON.stringify(uploaded.assets.map((asset: { name: string }) => asset.name).sort()) !== JSON.stringify([...assets].sort())) {
     throw new Error('Draft release contains unexpected or missing assets');
   }
-  const downloaded = await mkdtemp(join(tmpdir(), 'jjyb-release-verify-'));
+  const workRoot = resolve('.release-work');
+  await mkdir(workRoot, { recursive: true });
+  const downloaded = await mkdtemp(join(workRoot, 'jjyb-release-verify-'));
   gh('release', 'download', tag, '--dir', downloaded);
   if (!(await readFile(join(directory, 'SHA256SUMS'))).equals(await readFile(join(downloaded, 'SHA256SUMS')))) throw new Error('Downloaded checksum list differs from build');
   await verifyChecksums(downloaded, expected);

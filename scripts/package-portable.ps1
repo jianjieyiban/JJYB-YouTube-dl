@@ -5,7 +5,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
 $exeName = "JJYB-YouTube-dl_${version}_x64.exe"
-$layout = Join-Path $env:RUNNER_TEMP "jjyb-portable-$([guid]::NewGuid())"
+$layout = Join-Path $OutputDirectory "../.release-work/jjyb-portable-$([guid]::NewGuid())"
 New-Item -ItemType Directory -Path "$layout/jjyb-portable/bin" -Force | Out-Null
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 Copy-Item -LiteralPath $Executable -Destination "$OutputDirectory/$exeName"
