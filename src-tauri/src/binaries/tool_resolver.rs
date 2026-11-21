@@ -9,17 +9,52 @@ pub const REQUIRED_TOOLS: [&str; 4] = ["yt-dlp", "ffmpeg", "ffprobe", "deno"];
 #[derive(Clone)]
 pub struct ToolResolver {
   dirs: Vec<PathBuf>,
+  probe_roots: ProbeRoots,
+}
+
+#[derive(Clone)]
+struct ProbeRoots {
+  app_dir: PathBuf,
+  tmp_dir: PathBuf,
+  cache_dir: PathBuf,
+}
+
+impl ProbeRoots {
+  fn configure(&self, command: &mut std::process::Command) -> std::io::Result<()> {
+    for dir in [
+      &self.app_dir,
+      &self.tmp_dir,
+      &self.cache_dir.join("deno"),
+      &self.cache_dir.join("python"),
+    ] {
+      std::fs::create_dir_all(dir)?;
+    }
+    command
+      .current_dir(&self.app_dir)
+      .env("TEMP", &self.tmp_dir)
+      .env("TMP", &self.tmp_dir)
+      .env("TMPDIR", &self.tmp_dir)
+      .env("DENO_DIR", self.cache_dir.join("deno"))
+      .env("PYTHONDONTWRITEBYTECODE", "1")
+      .env("PYTHONPYCACHEPREFIX", self.cache_dir.join("python"));
+    Ok(())
+  }
 }
 
 impl ToolResolver {
   pub fn new(paths: &PathsManager) -> Self {
     Self {
       dirs: paths.tool_dirs(),
+      probe_roots: ProbeRoots {
+        app_dir: paths.app_dir().clone(),
+        tmp_dir: paths.tmp_dir(),
+        cache_dir: paths.cache_dir(),
+      },
     }
   }
 
   pub fn resolve(&self, tool: &str) -> Option<PathBuf> {
-    self.resolve_with(tool, |path, _| probe(path, tool, Duration::from_secs(5)))
+    self.resolve_with(tool, |path, _| self.probe(path, tool))
   }
 
   pub fn tool_dirs(&self) -> &[PathBuf] {
@@ -30,20 +65,22 @@ impl ToolResolver {
     let ffmpeg = self.resolve("ffmpeg");
     if let Some(ref binary) = ffmpeg {
       let sibling = binary.parent().unwrap().join(binary_name("ffprobe"));
-      if probe(&sibling, "ffprobe", Duration::from_secs(5)) {
+      if self.probe(&sibling, "ffprobe") {
         return (ffmpeg, Some(sibling));
       }
     }
     for dir in &self.dirs {
       let encoder = dir.join(binary_name("ffmpeg"));
       let decoder = dir.join(binary_name("ffprobe"));
-      if probe(&encoder, "ffmpeg", Duration::from_secs(5))
-        && probe(&decoder, "ffprobe", Duration::from_secs(5))
-      {
+      if self.probe(&encoder, "ffmpeg") && self.probe(&decoder, "ffprobe") {
         return (Some(encoder), Some(decoder));
       }
     }
     (ffmpeg, self.resolve("ffprobe"))
+  }
+
+  fn probe(&self, path: &Path, tool: &str) -> bool {
+    probe_scoped(path, tool, Duration::from_secs(5), Some(&self.probe_roots))
   }
 
   fn resolve_with(
@@ -97,12 +134,17 @@ impl ProbeFailure {
   }
 }
 
+#[cfg(test)]
 fn probe(path: &Path, tool: &str, timeout: Duration) -> bool {
+  probe_scoped(path, tool, timeout, None)
+}
+
+fn probe_scoped(path: &Path, tool: &str, timeout: Duration, roots: Option<&ProbeRoots>) -> bool {
   if version_arg(tool).is_none() || !path.is_absolute() || !path.is_file() {
     return false;
   }
   let started = std::time::Instant::now();
-  let result = probe_result(path, tool, timeout);
+  let result = probe_result_scoped(path, tool, timeout, roots);
   let elapsed_ms = started.elapsed().as_millis() as u64;
   match &result {
     Ok(()) => {
@@ -131,7 +173,17 @@ fn probe(path: &Path, tool: &str, timeout: Duration) -> bool {
   result.is_ok()
 }
 
+#[cfg(test)]
 fn probe_result(path: &Path, tool: &str, timeout: Duration) -> Result<(), ProbeFailure> {
+  probe_result_scoped(path, tool, timeout, None)
+}
+
+fn probe_result_scoped(
+  path: &Path,
+  tool: &str,
+  timeout: Duration,
+  roots: Option<&ProbeRoots>,
+) -> Result<(), ProbeFailure> {
   let arg = version_arg(tool).ok_or(ProbeFailure::Version)?;
   std::thread::scope(|scope| {
     scope
@@ -143,7 +195,13 @@ fn probe_result(path: &Path, tool: &str, timeout: Duration) -> Result<(), ProbeF
         runtime.block_on(async {
           use tokio::io::AsyncReadExt;
           const LIMIT: u64 = 64 * 1024;
-          let mut command = tokio::process::Command::new(path);
+          let mut base_command = std::process::Command::new(path);
+          if let Some(roots) = roots {
+            roots
+              .configure(&mut base_command)
+              .map_err(ProbeFailure::Io)?;
+          }
+          let mut command = tokio::process::Command::from(base_command);
           command
             .arg(arg)
             .stdin(Stdio::null())
@@ -221,6 +279,70 @@ mod tests {
   use std::time::Instant;
 
   #[test]
+  fn probe_command_contains_temp_and_cache_under_its_own_root() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+      .join("../../../.task-tmp")
+      .join(format!("tool-probe-{}", std::process::id()));
+    let roots = ProbeRoots {
+      app_dir: root.clone(),
+      tmp_dir: root.join("tmp"),
+      cache_dir: root.join("cache"),
+    };
+    let mut command = Command::new("deno");
+    roots.configure(&mut command).unwrap();
+    assert_eq!(command.get_current_dir(), Some(root.as_path()));
+    let env = command
+      .get_envs()
+      .collect::<std::collections::HashMap<_, _>>();
+    for key in ["TEMP", "TMP", "TMPDIR"] {
+      assert_eq!(
+        env[std::ffi::OsStr::new(key)],
+        Some(roots.tmp_dir.as_os_str())
+      );
+    }
+    let deno = roots.cache_dir.join("deno");
+    let python = roots.cache_dir.join("python");
+    assert_eq!(
+      env[std::ffi::OsStr::new("DENO_DIR")],
+      Some(deno.as_os_str())
+    );
+    assert_eq!(
+      env[std::ffi::OsStr::new("PYTHONPYCACHEPREFIX")],
+      Some(python.as_os_str())
+    );
+    assert_eq!(
+      env[std::ffi::OsStr::new("PYTHONDONTWRITEBYTECODE")],
+      Some(std::ffi::OsStr::new("1"))
+    );
+    assert!(roots.tmp_dir.is_dir());
+    assert!(deno.is_dir());
+    assert!(python.is_dir());
+    let other = ProbeRoots {
+      app_dir: root.join("other"),
+      tmp_dir: root.join("other/tmp"),
+      cache_dir: root.join("other/cache"),
+    };
+    let mut other_command = Command::new("deno");
+    other.configure(&mut other_command).unwrap();
+    assert_eq!(
+      other_command.get_current_dir(),
+      Some(other.app_dir.as_path())
+    );
+    assert_eq!(command.get_current_dir(), Some(root.as_path()));
+    assert_eq!(
+      command
+        .get_envs()
+        .collect::<std::collections::HashMap<_, _>>(),
+      env
+    );
+    std::fs::remove_dir_all(&roots.tmp_dir).unwrap();
+    std::fs::write(&roots.tmp_dir, b"keep").unwrap();
+    assert!(roots.configure(&mut Command::new("deno")).is_err());
+    assert_eq!(std::fs::read(&roots.tmp_dir).unwrap(), b"keep");
+    std::fs::remove_dir_all(root).unwrap();
+  }
+
+  #[test]
   fn skips_invalid_candidates_and_uses_correct_version_flag() {
     let root = std::env::temp_dir();
     let dirs = vec![
@@ -228,7 +350,14 @@ mod tests {
       root.join("managed"),
       root.join("path"),
     ];
-    let resolver = ToolResolver { dirs: dirs.clone() };
+    let resolver = ToolResolver {
+      dirs: dirs.clone(),
+      probe_roots: ProbeRoots {
+        app_dir: root.clone(),
+        tmp_dir: root.join("tmp"),
+        cache_dir: root.join("cache"),
+      },
+    };
     let mut checked = Vec::new();
     let found = resolver.resolve_with("ffmpeg", |path, arg| {
       assert_eq!(arg, "-version");
@@ -307,8 +436,17 @@ mod tests {
 
   #[test]
   fn probe_logs_only_existing_candidates_without_process_output() {
+    const ISOLATED: &str = "JJYB_ISOLATED_PROBE_LOG_TEST";
+    if std::env::var_os(ISOLATED).is_none() {
+      assert!(Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "binaries::tool_resolver::tests::probe_logs_only_existing_candidates_without_process_output", "--nocapture"])
+        .env(ISOLATED, "1")
+        .status()
+        .unwrap()
+        .success());
+      return;
+    }
     use std::sync::{Arc, Mutex};
-    use tracing_subscriber::prelude::*;
 
     #[derive(Clone)]
     struct Writer(Arc<Mutex<Vec<u8>>>);
@@ -323,13 +461,12 @@ mod tests {
     }
     let buffer = Arc::new(Mutex::new(Vec::new()));
     let writer = Writer(buffer.clone());
-    let subscriber = tracing_subscriber::registry().with(
-      tracing_subscriber::fmt::layer()
-        .without_time()
-        .with_ansi(false)
-        .with_writer(move || writer.clone())
-        .with_filter(tracing_subscriber::filter::LevelFilter::INFO),
-    );
+    let subscriber = tracing_subscriber::fmt()
+      .without_time()
+      .with_ansi(false)
+      .with_writer(move || writer.clone())
+      .with_max_level(tracing::Level::INFO)
+      .finish();
     let (_dir, executable) =
       fixture("fn main() { println!(\"private stdout\"); eprintln!(\"private stderr\"); }");
     tracing::subscriber::with_default(subscriber, || {

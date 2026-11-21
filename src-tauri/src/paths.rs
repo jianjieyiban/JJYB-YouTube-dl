@@ -14,18 +14,19 @@ pub struct PathsManager {
   app_dir: PathBuf,
   bin_dir: PathBuf,
   managed_bin_dir: PathBuf,
+  download_dir: PathBuf,
 }
 
 impl PathsManager {
-  pub fn new(app: &AppHandle) -> Self {
-    let app_data_dir = app
-      .path()
-      .app_data_dir()
-      .expect("failed to resolve app data dir");
+  pub fn new(app: &AppHandle) -> std::io::Result<Self> {
+    let app_data_dir = app.path().app_data_dir().map_err(std::io::Error::other)?;
+    let exe_dir = Self::resolve_executable_path();
+    #[cfg(windows)]
+    Self::windows_app_dir(exe_dir.clone())?;
     let (app_dir, is_portable_app, is_snap_app) = Self::resolve_app_dir_with(
       &app.config().identifier,
       app_data_dir.clone(),
-      Self::resolve_executable_path(),
+      exe_dir,
       Self::resolve_snap_user_data_dir(),
     );
     let (bin_dir, is_microsoft_store_app) = Self::resolve_bin_dir(app_dir.clone());
@@ -63,13 +64,29 @@ impl PathsManager {
       }
     }
 
-    Self {
+    Ok(Self {
       #[cfg(windows)]
       is_portable_app,
+      download_dir: {
+        #[cfg(windows)]
+        {
+          app_dir
+            .parent()
+            .expect("portable root has a parent")
+            .join("Downloads")
+        }
+        #[cfg(not(windows))]
+        {
+          app
+            .path()
+            .download_dir()
+            .unwrap_or_else(|_| std::env::current_dir().expect("couldn’t get current dir"))
+        }
+      },
       app_dir,
       bin_dir,
       managed_bin_dir: app_data_dir.join(BIN_DIR),
-    }
+    })
   }
 
   #[cfg(windows)]
@@ -79,6 +96,59 @@ impl PathsManager {
 
   pub fn app_dir(&self) -> &PathBuf {
     &self.app_dir
+  }
+
+  pub fn tmp_dir(&self) -> PathBuf {
+    self.app_dir.join("tmp")
+  }
+
+  pub fn cache_dir(&self) -> PathBuf {
+    self.app_dir.join("cache")
+  }
+
+  pub fn download_dir(&self) -> PathBuf {
+    self.download_dir.clone()
+  }
+
+  pub fn prepare_writable_dirs(&self) -> std::io::Result<()> {
+    #[cfg(windows)]
+    for dir in [
+      self.app_dir.clone(),
+      self.bin_dir.clone(),
+      self.tmp_dir(),
+      self.cache_dir(),
+      self.download_dir(),
+      self.app_dir.join("webview"),
+    ] {
+      Self::prepare_directory(&dir)?;
+    }
+    Ok(())
+  }
+
+  fn prepare_directory(dir: &std::path::Path) -> std::io::Result<()> {
+    let prepare = || -> std::io::Result<()> {
+      std::fs::create_dir_all(dir)?;
+      let probe = tempfile::NamedTempFile::new_in(dir)?;
+      probe.as_file().sync_all()?;
+      probe.close()?;
+      Ok(())
+    };
+    prepare().map_err(|error| {
+      std::io::Error::new(
+        error.kind(),
+        format!(
+          "应用根目录不可写：{}。请移动程序到可写目录；不会回退到 AppData。{error}",
+          dir.display()
+        ),
+      )
+    })
+  }
+
+  #[cfg(windows)]
+  fn windows_app_dir(exe_dir: Option<PathBuf>) -> std::io::Result<PathBuf> {
+    exe_dir
+      .map(|dir| dir.join(PORTABLE_DIR))
+      .ok_or_else(|| std::io::Error::other("无法确定程序所在目录；不会回退到 AppData。"))
   }
 
   pub fn bin_dir(&self) -> &PathBuf {
@@ -160,17 +230,29 @@ impl PathsManager {
     exe_dir: Option<PathBuf>,
     snap_user_data: Option<PathBuf>,
   ) -> (PathBuf, bool, bool) {
-    if let Some(snap_dir) = snap_user_data {
-      return (snap_dir.join(app_id), false, true);
+    #[cfg(windows)]
+    {
+      let _ = (app_id, app_data_dir, snap_user_data);
+      (
+        Self::windows_app_dir(exe_dir).expect("executable directory is required"),
+        true,
+        false,
+      )
     }
-    if let Some(exe_dir) = exe_dir {
-      let portable_dir = exe_dir.join(PORTABLE_DIR);
-      if portable_dir.exists() {
-        return (portable_dir, true, false);
+    #[cfg(not(windows))]
+    {
+      if let Some(snap_dir) = snap_user_data {
+        return (snap_dir.join(app_id), false, true);
       }
-    }
+      if let Some(exe_dir) = exe_dir {
+        let portable_dir = exe_dir.join(PORTABLE_DIR);
+        if portable_dir.exists() {
+          return (portable_dir, true, false);
+        }
+      }
 
-    (app_data_dir, false, false)
+      (app_data_dir, false, false)
+    }
   }
 
   fn resolve_bin_dir_with(
@@ -202,11 +284,43 @@ mod tests {
   use std::fs;
 
   fn temp_dir(prefix: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("ovd-{}-{}", prefix, uuid::Uuid::new_v4()));
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+      .join("../../../.task-tmp")
+      .join(format!("ovd-{}-{}", prefix, uuid::Uuid::new_v4()));
     fs::create_dir_all(&dir).expect("failed to create temp dir");
     dir
   }
 
+  #[cfg(windows)]
+  #[test]
+  fn markerless_windows_uses_executable_root_and_never_appdata() {
+    let base = temp_dir("markerless");
+    let exe = base.join("exe");
+    let (dir, portable, snap) =
+      PathsManager::resolve_app_dir_with("test", base.join("appdata"), Some(exe.clone()), None);
+    assert_eq!(dir, exe.join(PORTABLE_DIR));
+    assert!(portable);
+    assert!(!snap);
+    assert!(PathsManager::windows_app_dir(None).is_err());
+  }
+
+  #[test]
+  fn writable_directory_rejects_file_conflicts() {
+    let base = temp_dir("write-conflict");
+    let file = base.join("blocked");
+    fs::write(&file, b"keep").unwrap();
+    assert!(PathsManager::prepare_directory(&file).is_err());
+    assert_eq!(fs::read(file).unwrap(), b"keep");
+  }
+
+  #[test]
+  fn writable_directory_probe_leaves_no_files() {
+    let base = temp_dir("write-probe");
+    PathsManager::prepare_directory(&base).unwrap();
+    assert_eq!(fs::read_dir(base).unwrap().count(), 0);
+  }
+
+  #[cfg(not(windows))]
   #[test]
   fn resolve_app_dir_prefers_snap_user_data() {
     let base = temp_dir("snap-app-dir");
@@ -227,6 +341,7 @@ mod tests {
     assert!(is_snap);
   }
 
+  #[cfg(not(windows))]
   #[test]
   fn portable_brand_is_isolated_from_upstream() {
     assert_eq!(PORTABLE_DIR, "jjyb-portable");
@@ -261,6 +376,7 @@ mod tests {
     assert!(!is_snap);
   }
 
+  #[cfg(not(windows))]
   #[test]
   fn resolve_app_dir_snap_overrides_portable() {
     let base = temp_dir("snap-over-portable");

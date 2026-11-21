@@ -21,13 +21,10 @@ impl JsonBackedState for Config {
       value.network.enable_proxy =
         Some(value.network.proxy.as_ref().is_some_and(|v| !v.is_empty()));
     }
-    if value.output.download_dir.is_none() {
-      let download_path = app
-        .path()
-        .download_dir()
-        .unwrap_or_else(|_| std::env::current_dir().expect("couldn’t get current dir"));
-      value.output.download_dir = Some(download_path.to_str().unwrap().to_string());
-    }
+    initialize_download_dir(
+      value,
+      &app.state::<crate::paths::PathsManager>().download_dir(),
+    );
   }
 
   fn on_updated(app: &AppHandle<Wry>, new_value: &Self) {
@@ -82,4 +79,35 @@ impl JsonBackedState for Config {
   }
 }
 
+fn initialize_download_dir(value: &mut Config, download_dir: &std::path::Path) {
+  if value.output.download_dir.is_none() {
+    value.output.download_dir = Some(download_dir.to_string_lossy().into_owned());
+  }
+}
+
 pub type ConfigHandle = JsonStoreHandle<Config>;
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn initial_and_reset_defaults_use_root_downloads() {
+    let path = std::path::Path::new("root/Downloads");
+    for mut value in [Config::default(), Config::default_value()] {
+      initialize_download_dir(&mut value, path);
+      assert_eq!(value.output.download_dir.as_deref(), Some("root/Downloads"));
+    }
+  }
+
+  #[test]
+  fn explicit_external_download_directory_is_preserved() {
+    let mut value = Config::default();
+    value.output.download_dir = Some("external/chosen".into());
+    initialize_download_dir(&mut value, std::path::Path::new("root/Downloads"));
+    assert_eq!(
+      value.output.download_dir.as_deref(),
+      Some("external/chosen")
+    );
+  }
+}

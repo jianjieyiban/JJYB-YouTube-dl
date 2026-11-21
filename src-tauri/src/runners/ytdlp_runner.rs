@@ -17,12 +17,13 @@ use crate::stronghold::stronghold_state::{AuthSecrets, StrongholdState};
 use crate::{SharedConfig, SharedPreferences};
 use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
+use tempfile::NamedTempFile;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 #[derive(Debug, Clone)]
@@ -261,11 +262,7 @@ impl<'a> YtdlpRunner<'a> {
       &self.cfg.output,
       overrides.and_then(|value| value.output.as_ref()),
     );
-    let fallback_dir = self
-      .app
-      .path()
-      .download_dir()
-      .unwrap_or_else(|_| std::env::current_dir().expect("couldn’t get current dir"));
+    let fallback_dir = self.app.state::<PathsManager>().download_dir();
     build_output_template(
       track_type,
       template_context,
@@ -282,8 +279,7 @@ impl<'a> YtdlpRunner<'a> {
 
   pub async fn output(self) -> Result<YtdlpOutput, String> {
     log_run_summary(&self.args);
-    tracing::debug!("Running command: yt-dlp {}", self.args.join(" "));
-    let mut command = self.build_command()?;
+    let (mut command, cookie_files) = self.build_command()?;
 
     configure_command(&mut command).map_err(|e| format!("yt-dlp spawn setup failed: {e}"))?;
 
@@ -291,6 +287,7 @@ impl<'a> YtdlpRunner<'a> {
       let output = command
         .output()
         .map_err(|e| format!("yt-dlp failed to run: {e}"))?;
+      drop(cookie_files);
       Ok(YtdlpOutput {
         status: output.status,
         stdout: output.stdout,
@@ -303,17 +300,24 @@ impl<'a> YtdlpRunner<'a> {
 
   pub fn spawn(self) -> Result<(UnboundedReceiver<YtdlpCommandEvent>, YtdlpChild), String> {
     log_run_summary(&self.args);
-    tracing::debug!("Running command: yt-dlp {}", self.args.join(" "));
-    spawn_download_command(self.build_command()?).map(|(rx, child, _)| (rx, child))
+    let (command, cookie_files) = self.build_command()?;
+    spawn_download_command(command, cookie_files).map(|(rx, child, _)| (rx, child))
   }
 
-  fn build_command(&self) -> Result<Command, String> {
+  fn build_command(&self) -> Result<(Command, Vec<NamedTempFile>), String> {
     let binary = self
       .resolver
       .resolve("yt-dlp")
       .ok_or("No usable yt-dlp found")?;
     let mut command = Command::new(binary);
-    command.args(&self.args);
+    let paths = self.app.state::<PathsManager>();
+    let cookie_files = configure_root_command(
+      &mut command,
+      &self.args,
+      paths.app_dir(),
+      &paths.tmp_dir(),
+      &paths.cache_dir(),
+    )?;
     let (ffmpeg, ffprobe) = self.resolver.ffmpeg_pair();
     if let Some(ref encoder) = ffmpeg {
       command.arg("--ffmpeg-location").arg(encoder);
@@ -336,7 +340,7 @@ impl<'a> YtdlpRunner<'a> {
       "PATH",
       std::env::join_paths(dirs).map_err(|e| e.to_string())?,
     );
-    Ok(command)
+    Ok((command, cookie_files))
   }
 
   fn apply_auth_secrets(&mut self, s: AuthSecrets) {
@@ -363,8 +367,56 @@ impl<'a> YtdlpRunner<'a> {
   }
 }
 
+fn configure_root_command(
+  command: &mut Command,
+  args: &[String],
+  app_dir: &Path,
+  tmp_dir: &Path,
+  cache_dir: &Path,
+) -> Result<Vec<NamedTempFile>, String> {
+  std::fs::create_dir_all(tmp_dir)
+    .and_then(|_| std::fs::create_dir_all(cache_dir.join("deno")))
+    .map_err(|e| format!("Failed to prepare yt-dlp directories: {e}"))?;
+  command
+    .current_dir(app_dir)
+    .env("TEMP", tmp_dir)
+    .env("TMP", tmp_dir)
+    .env("TMPDIR", tmp_dir)
+    .env("DENO_DIR", cache_dir.join("deno"))
+    .env("PYTHONDONTWRITEBYTECODE", "1")
+    .env("PYTHONPYCACHEPREFIX", cache_dir.join("python"));
+
+  let mut cookie_files = Vec::new();
+  let mut args = args.iter();
+  while let Some(arg) = args.next() {
+    let cookie_path = if arg == "--cookies" {
+      Some(args.next().ok_or("Missing yt-dlp cookies file")?.as_str())
+    } else {
+      arg.strip_prefix("--cookies=")
+    };
+    if let Some(path) = cookie_path {
+      let mut copy = NamedTempFile::new_in(tmp_dir)
+        .map_err(|e| format!("Failed to create yt-dlp cookies copy: {e}"))?;
+      let mut source = std::fs::File::open(path)
+        .map_err(|e| format!("Failed to read yt-dlp cookies file: {e}"))?;
+      std::io::copy(&mut source, copy.as_file_mut())
+        .map_err(|e| format!("Failed to copy yt-dlp cookies file: {e}"))?;
+      command.arg("--cookies").arg(copy.path());
+      cookie_files.push(copy);
+    } else {
+      command.arg(arg);
+    }
+  }
+  command
+    .arg("--ignore-config")
+    .arg("--cache-dir")
+    .arg(cache_dir);
+  Ok(cookie_files)
+}
+
 fn spawn_download_command(
   mut command: Command,
+  cookie_files: Vec<NamedTempFile>,
 ) -> Result<(UnboundedReceiver<YtdlpCommandEvent>, YtdlpChild, u32), String> {
   command
     .stdin(Stdio::null())
@@ -425,6 +477,7 @@ fn spawn_download_command(
     };
     #[cfg(windows)]
     drop(platform);
+    drop(cookie_files);
     if status.is_ok() {
       let _ = reaped_tx.send(());
     }
@@ -1009,6 +1062,138 @@ fn subtitle_language_bases(languages: &[String]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+  fn root_test_dir() -> tempfile::TempDir {
+    tempfile::tempdir_in(env!("CARGO_MANIFEST_DIR")).unwrap()
+  }
+
+  #[test]
+  fn root_command_contains_working_temp_and_cache_directories() {
+    let root = root_test_dir();
+    let tmp = root.path().join("tmp");
+    let cache = root.path().join("cache");
+    let mut command = super::Command::new("yt-dlp");
+    super::configure_root_command(&mut command, &[], root.path(), &tmp, &cache).unwrap();
+    assert_eq!(command.get_current_dir(), Some(root.path()));
+    let env = command
+      .get_envs()
+      .collect::<std::collections::HashMap<_, _>>();
+    for key in ["TEMP", "TMP", "TMPDIR"] {
+      assert_eq!(env[std::ffi::OsStr::new(key)], Some(tmp.as_os_str()));
+    }
+    let deno = cache.join("deno");
+    assert_eq!(
+      env[std::ffi::OsStr::new("DENO_DIR")],
+      Some(deno.as_os_str())
+    );
+    assert_eq!(
+      env[std::ffi::OsStr::new("PYTHONDONTWRITEBYTECODE")],
+      Some(std::ffi::OsStr::new("1"))
+    );
+    let python = cache.join("python");
+    assert_eq!(
+      env[std::ffi::OsStr::new("PYTHONPYCACHEPREFIX")],
+      Some(python.as_os_str())
+    );
+    let args = command.get_args().collect::<Vec<_>>();
+    assert!(args.contains(&std::ffi::OsStr::new("--ignore-config")));
+    assert_eq!(
+      args,
+      [
+        std::ffi::OsStr::new("--ignore-config"),
+        std::ffi::OsStr::new("--cache-dir"),
+        cache.as_os_str(),
+      ]
+    );
+    assert!(tmp.is_dir());
+    assert!(deno.is_dir());
+  }
+
+  #[test]
+  fn root_command_copies_cookie_files_without_modifying_originals() {
+    let root = root_test_dir();
+    let original = root.path().join("original.txt");
+    std::fs::write(&original, b"original cookies").unwrap();
+    for equals_form in [false, true] {
+      let args = if equals_form {
+        vec![format!("--cookies={}", original.display())]
+      } else {
+        vec!["--cookies".into(), original.to_string_lossy().into_owned()]
+      };
+      let mut command = super::Command::new("yt-dlp");
+      let guards = super::configure_root_command(
+        &mut command,
+        &args,
+        root.path(),
+        &root.path().join("tmp"),
+        &root.path().join("cache"),
+      )
+      .unwrap();
+      assert_eq!(guards.len(), 1);
+      let copy = guards[0].path().to_path_buf();
+      assert!(copy.starts_with(root.path().join("tmp")));
+      assert_eq!(std::fs::read(&copy).unwrap(), b"original cookies");
+      let args = command.get_args().collect::<Vec<_>>();
+      assert_eq!(args[0], "--cookies");
+      assert_eq!(args[1], copy.as_os_str());
+      std::fs::write(&copy, b"updated cookies").unwrap();
+      assert_eq!(std::fs::read(&original).unwrap(), b"original cookies");
+      drop(guards);
+      assert!(!copy.exists());
+    }
+  }
+
+  #[test]
+  fn root_cookie_copy_failure_does_not_fall_back_to_original() {
+    let root = root_test_dir();
+    let tmp = root.path().join("tmp");
+    let mut command = super::Command::new("yt-dlp");
+    let result = super::configure_root_command(
+      &mut command,
+      &[
+        "--cookies".into(),
+        root
+          .path()
+          .join("missing.txt")
+          .to_string_lossy()
+          .into_owned(),
+      ],
+      root.path(),
+      &tmp,
+      &root.path().join("cache"),
+    );
+    assert!(result.is_err());
+    assert_eq!(std::fs::read_dir(tmp).unwrap().count(), 0);
+    assert_eq!(command.get_args().count(), 0);
+  }
+
+  #[tokio::test]
+  async fn root_cookie_copy_is_retained_until_spawned_child_exits() {
+    let root = root_test_dir();
+    let cookie = tempfile::NamedTempFile::new_in(root.path()).unwrap();
+    let path = cookie.path().to_path_buf();
+    #[cfg(windows)]
+    let mut command = {
+      let mut command = super::Command::new("cmd.exe");
+      command.args(["/D", "/C", "echo ready & ping -n 30 127.0.0.1 >NUL"]);
+      command
+    };
+    #[cfg(not(windows))]
+    let mut command = {
+      let mut command = super::Command::new("/bin/sh");
+      command.args(["-c", "echo ready; sleep 30"]);
+      command
+    };
+    command.current_dir(root.path());
+    let (mut events, mut child, _) = super::spawn_download_command(command, vec![cookie]).unwrap();
+    let ready = tokio::time::timeout(super::Duration::from_secs(5), events.recv())
+      .await
+      .unwrap();
+    assert!(matches!(ready, Some(super::YtdlpCommandEvent::Stdout(_))));
+    assert!(path.exists());
+    child.shutdown().await.unwrap();
+    assert!(!path.exists());
+  }
+
   #[tokio::test]
   async fn slow_reaping_does_not_finish_shutdown_before_confirmation() {
     use super::{mpsc, Duration, YtdlpChild};
@@ -1047,7 +1232,7 @@ mod tests {
 
     let mut command = Command::new("/bin/sh");
     command.args(["-c", "trap '' TERM; sleep 30 & echo ready; wait"]);
-    let (mut events, mut child, pid) = spawn_download_command(command).unwrap();
+    let (mut events, mut child, pid) = spawn_download_command(command, Vec::new()).unwrap();
     let ready = tokio::time::timeout(Duration::from_secs(3), events.recv())
       .await
       .expect("shell did not install its signal handler");

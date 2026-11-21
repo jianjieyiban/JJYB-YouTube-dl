@@ -91,9 +91,35 @@ pub fn run() {
       init_tracing();
 
       // setup runtime mode detection / path management
-      let path_handle = PathsManager::new(handle);
+      let path_handle = match PathsManager::new(handle).and_then(|paths| {
+        paths.prepare_writable_dirs()?;
+        Ok(paths)
+      }) {
+        Ok(paths) => paths,
+        Err(error) => {
+          #[cfg(windows)]
+          {
+            use tauri_plugin_dialog::DialogExt;
+            let exit_handle = handle.clone();
+            handle.dialog().message(format!("启动失败：{error}"))
+              .title("根目录不可用").show(move |_| exit_handle.exit(1));
+            return Ok(());
+          }
+          #[cfg(not(windows))]
+          return Err(error.into());
+        }
+      };
       handle.manage(path_handle.clone());
 
+      #[cfg(windows)]
+      let legacy = {
+        let old = handle.path().app_data_dir()?;
+        crate::state::json_handle::legacy_stores_available(path_handle.app_dir(), &old)?
+          .then_some(old)
+      };
+      let startup_handle = handle.clone();
+      let initialize = move || -> Result<(), Box<dyn std::error::Error>> {
+      let handle = &startup_handle;
       // setup config management
       let config_handle = ConfigHandle::init(handle)?;
       let shared_config = Arc::new(config_handle);
@@ -163,7 +189,37 @@ pub fn run() {
 
       // register shortcuts
       register_shortcuts(handle);
+      Ok(())
+      };
 
+      #[cfg(windows)]
+      if let Some(old) = legacy {
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+        let root = handle.state::<PathsManager>().app_dir().clone();
+        let callback_handle = handle.clone();
+        handle.dialog()
+          .message("检测到旧 AppData 设置。是否导入普通设置与偏好？\n不会复制 Cookies、保险库、认证引用、代理或提取器参数；旧数据保持不变。\n选择全新配置将使用程序旁的 Downloads（导入时保留显式下载目录）。")
+          .title("选择根目录配置")
+          .buttons(MessageDialogButtons::YesNoCancelCustom(
+            "导入设置".into(), "全新配置".into(), "退出".into()))
+          .show_with_result(move |result| {
+            let decision = crate::state::json_handle::migration_decision(result);
+            let result = match decision {
+              Some(import) => (|| -> Result<(), Box<dyn std::error::Error>> {
+                if import { crate::state::json_handle::import_legacy_stores(&root, &old)?; }
+                initialize()
+              })(),
+              None => { callback_handle.exit(0); return; }
+            };
+            if let Err(error) = result {
+              let exit_handle = callback_handle.clone();
+              callback_handle.dialog().message(format!("启动失败：{error}"))
+                .title("根目录配置错误").show(move |_| exit_handle.exit(1));
+            }
+          });
+        return Ok(());
+      }
+      initialize()?;
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![

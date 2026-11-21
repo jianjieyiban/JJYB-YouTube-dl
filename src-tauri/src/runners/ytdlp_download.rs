@@ -69,9 +69,11 @@ pub async fn run_ytdlp_download(
   entry: DownloadEntry,
   run: &mut DownloadRun,
 ) -> Result<(), YtdlpDownloadError> {
-  let manifest = tempfile::NamedTempFile::new()
+  let tmp_dir = app.state::<crate::paths::PathsManager>().tmp_dir();
+  fs::create_dir_all(&tmp_dir).map_err(|e| YtdlpDownloadError::InvalidArguments(e.to_string()))?;
+  let manifest = tempfile::NamedTempFile::new_in(&tmp_dir)
     .map_err(|e| YtdlpDownloadError::InvalidArguments(e.to_string()))?;
-  let media_manifest = tempfile::NamedTempFile::new()
+  let media_manifest = tempfile::NamedTempFile::new_in(&tmp_dir)
     .map_err(|e| YtdlpDownloadError::InvalidArguments(e.to_string()))?;
   let config = app.state::<crate::SharedConfig>().load();
   let subtitle_settings: crate::state::config_models::SubtitleSettings =
@@ -145,7 +147,7 @@ pub async fn run_ytdlp_download(
     Err(err) => return Err(output_failure(&app, &entry, err)),
   };
   let thumbnails =
-    tempfile::NamedTempFile::new().map_err(|err| output_failure(&app, &entry, err))?;
+    tempfile::NamedTempFile::new_in(&tmp_dir).map_err(|err| output_failure(&app, &entry, err))?;
   let save_thumbnail =
     entry.thumbnail_only || output_args.iter().any(|arg| arg == "--write-thumbnail");
   let runner = runner
