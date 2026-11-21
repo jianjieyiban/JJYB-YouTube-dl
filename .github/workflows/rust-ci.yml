@@ -4,12 +4,14 @@ on:
   push:
     branches: [main]
     paths:
+      - 'AGENTS.md'
       - '.github/workflows/rust-ci.yml'
       - '.github/actions/install-tauri-deps/**'
       - 'src-tauri/**'
   pull_request:
     branches: [main]
     paths:
+      - 'AGENTS.md'
       - '.github/workflows/rust-ci.yml'
       - '.github/actions/install-tauri-deps/**'
       - 'src-tauri/**'

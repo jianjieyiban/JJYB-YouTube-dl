@@ -16,11 +16,11 @@
 
 3.4.5 待发布维护内容：应用更新遵循 HTTP/SOCKS 代理并增加读超时；metadata 解析、播放列表展开与大小查询入口纳入 busy 锁；界面区分应用更新与工具更新。保留 reqwest `socks` 改动，工具更新不等于主程序升级。
 
-最新隔离成功链：系统 Temp `jjyb-updater-fixed343-acceptance/.jjyb-update-6304661beb53406f9332a01a9a3d0c85/journal.json` 为 `Committed`、旧版 3.4.3，用户截图确认成功重启。3.4.4 故障回退及原生 busy 尚欠验收，后续 tag/Release 门禁不解除。
+最新隔离成功链：系统 Temp `jjyb-updater-fixed343-acceptance/.jjyb-update-6304661beb53406f9332a01a9a3d0c85/journal.json` 为 `Committed`、旧版 3.4.3，用户截图确认成功重启。另一次系统 Temp `jjyb-345-prepublish-rollback` 的官方 3.4.3 → 3.4.4 故障就绪测试已记录 RollingBack → RolledBack，旧 EXE SHA256 和配置逐字段恢复，自动重启 About 显示 3.4.3；不覆盖 90 秒超时分支或 3.4.5。原生 busy、工具识别失败根因及网络稳定性仍待验收，后续 tag/Release 门禁不解除。
 
 本轮 3.4.5 源码回归：前端 278 项/36 文件、mock E2E 26 项（含设置入口点击）、发布规则 15 项、lint/类型检查与双前端构建通过；Rust all-features/all-targets 203 passed / 1 ignored，真实 FFmpeg ignored 用例另行运行 1 passed；全库 fmt 与严格 Clippy 通过，保留既有第三方警告。日志位于系统 Temp `jjyb-345-*`。直接浏览器视觉检查因未注入测试 fixture 被阻塞；后续 fixture E2E 通过，不冒充原生视觉验收或 3.4.5 全部门禁通过。
 
-只读工具来源核查：自有 `tools-stable/manifest.json`（2026-11-17）列出 yt-dlp 2026.10.26、ffmpeg/ffprobe b6.1.1、deno v2.9.8、AtomicParsley 20240608.083822.1ed9031；均与对应来源 yt-dlp/yt-dlp、eugeneware/ffmpeg-static、denoland/deno、wez/atomicparsley 的 latest 版本一致。未发现同来源可直接更新的版本清单；此处未下载执行工具、未重新验签或保证安全无漏洞。FFmpeg 的构建分发源不是 FFmpeg 项目本身；切换其他构建源需独立校验，不自动替换。
+只读工具来源核查：自有 `tools-stable/manifest.json`（2026-11-17）列出 yt-dlp 2026.10.26、ffmpeg/ffprobe b6.1.1、deno v2.9.8、AtomicParsley 20240608.083822.1ed9031；均与对应来源 yt-dlp/yt-dlp、eugeneware/ffmpeg-static、denoland/deno、wez/atomicparsley 的 latest 版本一致。未发现同来源可直接更新的版本清单。另一次 2026-11-21 审计已用应用内置公钥验证正式清单 Ed25519 签名并核对 SHA256（系统 Temp `jjyb-tools-audit-20261121-133916`）；11 月 17 日是清单生成日期而非 yt-dlp 版本。这不保证工具安全无漏洞。FFmpeg 的构建分发源不是 FFmpeg 项目本身；切换其他构建源需独立校验，不自动替换。
 
 ## 已发布版本与升级复核（2026-11-20）
 
