@@ -72,22 +72,74 @@ fn version_arg(tool: &str) -> Option<&'static str> {
   }
 }
 
+#[derive(Debug)]
+enum ProbeFailure {
+  Runtime(Option<std::io::Error>),
+  Spawn(std::io::Error),
+  Io(std::io::Error),
+  Timeout,
+  Exit(std::process::ExitStatus),
+  Size { stdout: usize, stderr: usize },
+  Version,
+}
+
+impl ProbeFailure {
+  fn category(&self) -> &'static str {
+    match self {
+      Self::Runtime(_) => "runtime",
+      Self::Spawn(_) => "spawn",
+      Self::Io(_) => "io",
+      Self::Timeout => "timeout",
+      Self::Exit(_) => "exit",
+      Self::Size { .. } => "size",
+      Self::Version => "version",
+    }
+  }
+}
+
 fn probe(path: &Path, tool: &str, timeout: Duration) -> bool {
-  let Some(arg) = version_arg(tool) else {
-    return false;
-  };
-  if !path.is_absolute() || !path.is_file() {
+  if version_arg(tool).is_none() || !path.is_absolute() || !path.is_file() {
     return false;
   }
+  let started = std::time::Instant::now();
+  let result = probe_result(path, tool, timeout);
+  let elapsed_ms = started.elapsed().as_millis() as u64;
+  match &result {
+    Ok(()) => {
+      tracing::debug!(target: "jjyb::tool_probe", tool, path = %path.display(), elapsed_ms, category = "success", "Tool version probe succeeded")
+    }
+    Err(failure) => {
+      let (io_kind, os_error) = match failure {
+        ProbeFailure::Runtime(Some(error))
+        | ProbeFailure::Spawn(error)
+        | ProbeFailure::Io(error) => (Some(error.kind()), error.raw_os_error()),
+        _ => (None, None),
+      };
+      let exit_code = match failure {
+        ProbeFailure::Exit(status) => status.code(),
+        _ => None,
+      };
+      let (stdout_bytes, stderr_bytes) = match failure {
+        ProbeFailure::Size { stdout, stderr } => (Some(*stdout), Some(*stderr)),
+        _ => (None, None),
+      };
+      tracing::warn!(target: "jjyb::tool_probe", tool, path = %path.display(), elapsed_ms,
+        category = failure.category(), ?io_kind, ?os_error, ?exit_code, ?stdout_bytes, ?stderr_bytes,
+        "Tool version probe failed");
+    }
+  }
+  result.is_ok()
+}
+
+fn probe_result(path: &Path, tool: &str, timeout: Duration) -> Result<(), ProbeFailure> {
+  let arg = version_arg(tool).ok_or(ProbeFailure::Version)?;
   std::thread::scope(|scope| {
     scope
       .spawn(|| {
-        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+        let runtime = tokio::runtime::Builder::new_current_thread()
           .enable_all()
           .build()
-        else {
-          return false;
-        };
+          .map_err(|error| ProbeFailure::Runtime(Some(error)))?;
         runtime.block_on(async {
           use tokio::io::AsyncReadExt;
           const LIMIT: u64 = 64 * 1024;
@@ -100,9 +152,7 @@ fn probe(path: &Path, tool: &str, timeout: Duration) -> bool {
             .kill_on_drop(true);
           #[cfg(windows)]
           command.creation_flags(0x08000000);
-          let Ok(mut child) = command.spawn() else {
-            return false;
-          };
+          let mut child = command.spawn().map_err(ProbeFailure::Spawn)?;
           let mut stdout = child.stdout.take().unwrap().take(LIMIT + 1);
           let mut stderr = child.stderr.take().unwrap().take(LIMIT + 1);
           let output = tokio::time::timeout(timeout, async {
@@ -116,18 +166,34 @@ fn probe(path: &Path, tool: &str, timeout: Duration) -> bool {
             Ok::<_, std::io::Error>((status, out, err))
           })
           .await;
-          let Ok(Ok((status, out, err))) = output else {
-            let _ = child.start_kill();
-            return false;
+          let (status, out, err) = match output {
+            Ok(Ok(output)) => output,
+            failure => {
+              let _ = child.start_kill();
+              return Err(match failure {
+                Ok(Err(error)) => ProbeFailure::Io(error),
+                Err(_) => ProbeFailure::Timeout,
+                Ok(Ok(_)) => unreachable!(),
+              });
+            }
           };
-          status.success()
-            && out.len() <= LIMIT as usize
-            && err.len() <= LIMIT as usize
-            && (valid_version(tool, &out) || valid_version(tool, &err))
+          if !status.success() {
+            return Err(ProbeFailure::Exit(status));
+          }
+          if out.len() > LIMIT as usize || err.len() > LIMIT as usize {
+            return Err(ProbeFailure::Size {
+              stdout: out.len(),
+              stderr: err.len(),
+            });
+          }
+          if !valid_version(tool, &out) && !valid_version(tool, &err) {
+            return Err(ProbeFailure::Version);
+          }
+          Ok(())
         })
       })
       .join()
-      .unwrap_or(false)
+      .unwrap_or(Err(ProbeFailure::Runtime(None)))
   })
 }
 
@@ -191,6 +257,105 @@ mod tests {
       "deno",
       Duration::from_secs(1)
     ));
+  }
+
+  #[test]
+  fn probe_failures_are_classified_without_output_contents() {
+    for (source, expected) in [
+      (
+        "fn main() { std::thread::sleep(std::time::Duration::from_secs(10)); }",
+        "timeout",
+      ),
+      (
+        "fn main() { println!(\"deno 2.5.6\"); std::process::exit(7); }",
+        "exit",
+      ),
+      ("fn main() { println!(\"not a version\"); }", "version"),
+      ("fn main() { print!(\"{}\", \"x\".repeat(65537)); }", "size"),
+      (
+        "fn main() { eprint!(\"{}\", \"x\".repeat(65537)); }",
+        "size",
+      ),
+    ] {
+      let (_dir, executable) = fixture(source);
+      let timeout = if expected == "timeout" {
+        Duration::from_millis(200)
+      } else {
+        Duration::from_secs(5)
+      };
+      let failure = probe_result(&executable, "deno", timeout).unwrap_err();
+      assert_eq!(failure.category(), expected);
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let invalid = dir.path().join(binary_name("invalid"));
+    std::fs::write(&invalid, b"not an executable").unwrap();
+    assert_eq!(
+      probe_result(&invalid, "deno", Duration::from_secs(5))
+        .unwrap_err()
+        .category(),
+      "spawn"
+    );
+    assert_eq!(
+      ProbeFailure::Runtime(Some(std::io::Error::other("not logged"))).category(),
+      "runtime"
+    );
+    assert_eq!(
+      ProbeFailure::Io(std::io::Error::other("not logged")).category(),
+      "io"
+    );
+  }
+
+  #[test]
+  fn probe_logs_only_existing_candidates_without_process_output() {
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::prelude::*;
+
+    #[derive(Clone)]
+    struct Writer(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Writer {
+      fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+      }
+      fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+      }
+    }
+    let buffer = Arc::new(Mutex::new(Vec::new()));
+    let writer = Writer(buffer.clone());
+    let subscriber = tracing_subscriber::registry().with(
+      tracing_subscriber::fmt::layer()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(move || writer.clone())
+        .with_filter(tracing_subscriber::filter::LevelFilter::INFO),
+    );
+    let (_dir, executable) =
+      fixture("fn main() { println!(\"private stdout\"); eprintln!(\"private stderr\"); }");
+    tracing::subscriber::with_default(subscriber, || {
+      assert!(!probe(
+        &executable.with_extension("missing"),
+        "deno",
+        Duration::from_secs(5)
+      ));
+      assert!(buffer.lock().unwrap().is_empty());
+      assert!(!probe(&executable, "deno", Duration::from_secs(5)));
+    });
+    let log = String::from_utf8(buffer.lock().unwrap().clone()).unwrap();
+    assert!(log.contains("jjyb::tool_probe"));
+    assert!(log.contains("category=\"version\""));
+    assert!(log.contains("elapsed_ms="));
+    assert!(log.contains(&executable.display().to_string()));
+    assert!(!log.contains("private stdout"));
+    assert!(!log.contains("private stderr"));
+  }
+
+  #[test]
+  fn version_validation_remains_strict_on_first_line() {
+    assert!(!valid_version("deno", b"unrelated\ndeno 2.5.6"));
+    assert!(!valid_version("yt-dlp", b"2026.11.12 trailing"));
+    assert!(!valid_version("deno", b"deno 2.5.6\n\xff"));
+    assert!(valid_version("yt-dlp", b"2026.11.12\nadditional line"));
   }
 
   fn fixture(source: &str) -> (tempfile::TempDir, PathBuf) {

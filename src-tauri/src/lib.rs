@@ -256,6 +256,7 @@ pub fn init_tracing() {
 
   let sentry_layer = sentry::integrations::tracing::layer().with_filter(
     Targets::new()
+      .with_target("jjyb::tool_probe", LevelFilter::OFF)
       .with_target("tauri_plugin_updater", LevelFilter::OFF)
       .with_default(tracing_levels()),
   );
